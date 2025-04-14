@@ -1,0 +1,37 @@
+[package]
+version = "0.1.0"
+authors = ["Luyten Orion"]
+description = "A new package manager for Nim!"
+license = "MIT"
+bin = ["payload"]
+# Custom buildscript for the package
+#build = ""
+#documentation = "URL here"
+#source = "URL here"
+#homepage = "URL here"
+#keywords = ["nim", "package", "manager"]
+
+[dependencies]
+nim = { src = "gh:nim-lang/nim", version = ">=1.6.0, <3.0.0", relocate = "nim" }
+#a-dep = {
+## the package manager should be able to infer this from `gh`, for example
+# vcs = "git",
+# src = "gh:org/repo",
+# relocate = "diffname",
+# version = "@branch" # or "@#tag"
+#}
+
+# Development dependencies
+#[dev-dependencies]
+
+# Build dependencies
+#[build-dependencies]
+
+#[features]
+# Default feature set
+#default = []
+
+# Specifying your own features
+#[features.logging]
+#dependencies = ["log"]
+#description = "Enables fancy logging with the `log` package"
