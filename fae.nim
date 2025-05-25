@@ -38,7 +38,7 @@ type
     bin*: seq[string]
     documentation*, source*, homepage*: string
     # For any data that isn't relevant to Fae, but exists for other tools
-    ext*: TomlTableRef
+    ext*: TomlTable
 
   Repository* = object
     vcs*: string
@@ -76,7 +76,7 @@ proc fromTomlImpl*[T: object](
   t: TomlValueRef,
   conf: TomlDecoderConfig
 ) =
-  #mixin fromTomlImpl
+  mixin fromTomlImpl
 
   assert t.kind == TomlValueKind.Table, "Can only unpack objects from tables."
 
@@ -87,7 +87,7 @@ proc fromTomlImpl*[T: object](
     when not hasCustomPragma(field, rename): nm
     else: getCustomPragmaVal(field, rename)
 
-  const FieldNames = block:
+  var fieldNames = static:
     var fields: seq[string]
 
     for nm, field in res.fieldPairs:
@@ -101,21 +101,27 @@ proc fromTomlImpl*[T: object](
 
   if conf.rejectUnknownFields:
     for key in tblFields:
-      if key notin FieldNames:
+      if key notin fieldNames:
         raise newException(KeyError, "Unknown field: " & key)
 
-  if not conf.allowMissingFields:
-    for key in FieldNames:
+  if conf.allowMissingFields:
+    var excl: seq[string]
+
+    for key in fieldNames:
+      if key notin tblFields:
+        excl.add key
+
+    fieldNames = fieldNames.filterIt(it notin excl)
+  else:
+    for key in fieldNames:
       if key notin tblFields:
         raise newException(KeyError, "Missing field: " & key)
 
-  for key, value in tbl:
-    block outerLoop:
-      for nm, field in res.fieldPairs:
-        const FieldName = getFieldName(nm, field)
+  for nm, field in res.fieldPairs:
+    const FieldName = getFieldName(nm, field)
 
-        if key == FieldName: field.fromTomlImpl(value, conf)
-        else: break outerLoop
+    if FieldName in fieldNames:
+      field.fromTomlImpl(tbl[FieldName], conf)
 
 
 proc fromTomlImpl*(
@@ -223,6 +229,7 @@ type
     format: int
     data: Table[string, float]
     arr: seq[int]
+    a: int
     b: bool
     nested: Obj
 
@@ -236,7 +243,5 @@ arr = [ 1, 2, 3 ]
 b = true
 nested = { "a-dash" = 1 }
 """, "string>")
-
-echo tomlData.toTomlString
 
 echo Test.fromToml(tomlData)
