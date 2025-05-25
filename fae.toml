@@ -1,0 +1,84 @@
+format = 0
+
+# Name is either the name of the repository or what `relocate` is set to.
+# Version is defined via the version control system, will definitely need a
+# VCS plugin
+[package]
+# By default it's `git` but can be anything as long as the approriate VCS plugin
+# is installed/has support built-in. `local` and `git` are the built-in VCS
+# plugins, and by default, `git` is used (`local` would only be defined for
+# monorepos or local dev, probably)
+vcs = "git"
+# Making it a list from the start just makes sense... Optional.
+authors = ["Luyten Orion"]
+# Moreso a summary than a description, README.md should contain a more complete
+# description. Optional
+description = "A new package manager for Skull!"
+license = "MIT"
+# Implicitly set to `src`
+src-dir = "src"
+# Implicitly set to `bin`
+bin-dir = "bin"
+# Full paths to binaries, may want to pull this out into a separate file at
+# some point...
+# if we pull this out into a separate file, or more specifically, into a
+# buildscript, we can give the developer greater control of the build logic,
+# since they'd know exactly what to build with which tool. And since we'd handle
+# the more tedious stuff such as dependency resolution and downloading, and
+# we have the plugins used, declared in the package def, we can provide a nice
+# and clean interface for quick and easy buildscripts rather than stuffing it
+# all into a configuration language
+bin = ["src/fae.nim"]
+#documentation = "URL here"
+#source = "URL here"
+#homepage = "URL here"
+
+# For storing extra data to be used in other services, for example, a package
+# index site.
+[package.ext]
+tags = ["nimskull", "package-manager", "cli"]
+
+[repositories.gh]
+vcs = "git"
+# The order of the list defines the priority used, this can be overridden
+# in the VCS plugin config.
+protocols = ["git+ssh", "git+https", "git+http"]
+host = "github.com"
+
+[dependencies]
+parsetoml = { src = "gh:NimParsers/parsetoml", ref = "#d297f5a" }
+
+#a-dep = {
+# vcs = "git",
+# src = "https://example.git/org/repo",
+# relocate = "diffname",
+# version = "1.0.0" # Following SemVer
+#}
+
+# Development dependencies... Is there a point to this? Omitting this until
+# we find a use case
+#[dev-dependencies]
+
+# leaving tools out of this for now
+# Tools should be implemented via a plugin instead, tbh...
+# also while skull is compatible with Nim code to a *degree*, I think a separate
+# plugin should be made anyway
+#[tools.providers.nim]
+# `common` is for shared configurations
+#nim = { version = ">=1.6.0, <3" }
+#nimskull = { version = "0.1.0-dev.21458" }
+
+# Build tools for compiling the program
+#[tools]
+# yeah i don't like this 'provided-by' stuff.
+#nim = { provided-by = ["nim", "nimskull"] }
+
+# also not implementing features yet, either
+#[features]
+# Default feature set
+#default = []
+
+# Specifying your own features
+#[features.logging]
+#dependencies = ["log"]
+#description = "Enables fancy logging with the `log` package"
