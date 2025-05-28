@@ -7,11 +7,11 @@ import std/[
 
 import parsetoml
 
-const LatestFaeFormat = 0
+import ./fae/[
+  tomlhelpers
+]
 
-# Some pragmas for making deserialisation cleaner
-template rename*(name: string) {.pragma.}
-template tag*(field: string, value: Ordinal) {.pragma.}
+const LatestFaeFormat = 0
 
 # Data types
 type
@@ -25,20 +25,21 @@ type
 
   PkgManifest* = object
     format*: uint
-    metadata* {.rename: "package"}: PkgMetadata
+    metadata* {.rename: "package".}: PkgMetadata
     # ordered table so it can be serialised in the same order
     repositories*: OrderedTable[string, Repository]
+    dependencies*: OrderedTable[string, PkgDependency]
 
   PkgMetadata* = object
     vcs*: string
     authors*: seq[string]
-    description*, license*: string
+    description*, license*: Option[string]
     srcDir* {.rename: "src-dir"}: Option[string]
     binDir* {.rename: "bin-dir"}: Option[string]
     bin*: seq[string]
-    documentation*, source*, homepage*: string
+    documentation*, source*, homepage*: Option[string]
     # For any data that isn't relevant to Fae, but exists for other tools
-    ext*: TomlTable
+    ext*: Option[TomlTable]
 
   Repository* = object
     vcs*: string
@@ -52,196 +53,12 @@ type
     # passed to the appropriate VCS plugin (through the repository definition).
     # so `git+ssh@github.com:user/repo` is the same as
     # `gh:user/repo`. `path` is also a valid repository which uses file paths.
-    src*, relocate*: string
-    case pin*: PinKind
-    of Version: version* {.tag("pin", Version).}: SemVer
-    of Reference:
-      # Left as a string since it's interpreted by the vcs plugin
-      refr* {.rename: "ref", tag("pin", Reference).}: string
-
-  TomlDecoderConfig* = object
-    rejectUnknownFields*: bool ## Error on unknown fields if true
-    allowMissingFields*: bool ## Ignore missing fields if true
+    src*: string
+    relocate*: Option[string]
+    pin* {.ignore.}: PinKind
+    version* {.tag("pin", Version).}: Option[SemVer]
+    # Left as a string since it's interpreted by the vcs plugin
+    refr* {.rename: "ref", tag("pin", Reference).}: Option[string]
 
 
-const DefaultDecoderConfig = TomlDecoderConfig(
-  rejectUnknownFields: true,
-  allowMissingFields: false
-)
-
-
-# Decoding stuff
-proc fromTomlImpl*[T: object](
-  res: var T,
-  t: TomlValueRef,
-  conf: TomlDecoderConfig
-) =
-  mixin fromTomlImpl
-
-  assert t.kind == TomlValueKind.Table, "Can only unpack objects from tables."
-
-  template getFieldName(
-    nm: string,
-    field: untyped
-  ): string =
-    when not hasCustomPragma(field, rename): nm
-    else: getCustomPragmaVal(field, rename)
-
-  var fieldNames = static:
-    var fields: seq[string]
-
-    for nm, field in res.fieldPairs:
-      fields.add getFieldName(nm, field)
-
-    fields
-
-  let
-    tbl = t.getTable
-    tblFields = toSeq(tbl.keys)
-
-  if conf.rejectUnknownFields:
-    for key in tblFields:
-      if key notin fieldNames:
-        raise newException(KeyError, "Unknown field: " & key)
-
-  if conf.allowMissingFields:
-    var excl: seq[string]
-
-    for key in fieldNames:
-      if key notin tblFields:
-        excl.add key
-
-    fieldNames = fieldNames.filterIt(it notin excl)
-  else:
-    for key in fieldNames:
-      if key notin tblFields:
-        raise newException(KeyError, "Missing field: " & key)
-
-  for nm, field in res.fieldPairs:
-    const FieldName = getFieldName(nm, field)
-
-    if FieldName in fieldNames:
-      field.fromTomlImpl(tbl[FieldName], conf)
-
-
-proc fromTomlImpl*(
-  res: var string,
-  t: TomlValueRef,
-  conf: TomlDecoderConfig
-) =
-  assert t.kind == TomlValueKind.String
-  res = t.getStr
-
-
-proc fromTomlImpl*[T: SomeInteger](
-  res: var T,
-  t: TomlValueRef,
-  conf: TomlDecoderConfig
-) =
-  assert t.kind == TomlValueKind.Int
-  res = T(t.getInt)
-
-
-proc fromTomlImpl*(
-  res: var bool,
-  t: TomlValueRef,
-  conf: TomlDecoderConfig
-) =
-  assert t.kind == TomlValueKind.Bool
-  res = t.getBool
-
-
-proc fromTomlImpl*[T: SomeFloat](
-  res: var T,
-  t: TomlValueRef,
-  conf: TomlDecoderConfig
-) =
-  assert t.kind == TomlValueKind.Float
-  res = T(t.getFloat)
-
-
-proc fromTomlImpl*[T](
-  res: var seq[T],
-  t: TomlValueRef,
-  conf: TomlDecoderConfig
-) =
-  mixin fromTomlImpl
-  assert t.kind == TomlValueKind.Array
-
-  let arr = t.getElems
-  res.setLen(arr.len)
-
-  for i in 0..<arr.len:
-    res[i].fromTomlImpl(arr[i], conf)
-
-
-proc fromTomlImpl*[T](
-  res: var (Table[string, T] | OrderedTable[string, T]),
-  t: TomlValueRef,
-  conf: TomlDecoderConfig
-) =
-  mixin fromTomlImpl
-  assert t.kind == TomlValueKind.Table
-
-  for key, value in t.getTable:
-    res[key] = when T is ref: new(T) else: default(T)
-    res[key].fromTomlImpl(value, conf)
-
-
-proc fromTomlImpl*[T: ref](
-  res: var T,
-  t: TomlValueRef,
-  conf: TomlDecoderConfig
-) =
-  mixin fromTomlImpl
-  if res == nil:
-    res = new(T)
-  res[].fromTomlImpl(t, conf)
-
-
-proc fromToml*[T: not ref](
-  _: typedesc[T],
-  t: TomlValueRef,
-  conf = DefaultDecoderConfig
-): T =
-  mixin fromTomlImpl
-
-  result.fromTomlImpl(t, conf)
-
-
-proc fromToml*[T: ref](
-  _: typedesc[T],
-  t: TomlValueRef,
-  conf = DefaultDecoderConfig
-): T =
-  mixin fromTomlImpl
-
-  result = T()
-
-  result[].fromTomlImpl(t, conf)
-
-
-type
-  Obj = ref object
-    a {.rename: "a-dash".}: int
-
-  Test = object
-    format: int
-    data: Table[string, float]
-    arr: seq[int]
-    a: int
-    b: bool
-    nested: Obj
-
-
-proc `$`(o: Obj): string = $o[]
-
-let tomlData = parseString("""
-format = 1
-data = { "a" = 2.0, "b" = 3.0 }
-arr = [ 1, 2, 3 ]
-b = true
-nested = { "a-dash" = 1 }
-""", "string>")
-
-echo Test.fromToml(tomlData)
+echo PkgManifest.fromToml(parseFile("fae.toml"))
