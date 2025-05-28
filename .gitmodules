@@ -1,3 +1,6 @@
 [submodule "deps/parsetoml"]
 	path = deps/parsetoml
 	url = https://github.com/NimParsers/parsetoml
+[submodule "deps/gittyup"]
+	path = deps/gittyup
+	url = https://github.com/disruptek/gittyup

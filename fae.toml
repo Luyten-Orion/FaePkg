@@ -45,8 +45,13 @@ vcs = "git"
 protocols = ["git+ssh", "git+https", "git+http"]
 host = "github.com"
 
-[dependencies]
-parsetoml = { src = "gh:NimParsers/parsetoml", ref = "#d297f5a" }
+[[dependencies]]
+src = "gh:NimParsers/parsetoml"
+ref = "#d297f5a"
+
+[[dependencies]]
+src = "gh:disruptek/gittyup"
+version = "3.2.2"
 
 #a-dep = {
 # vcs = "git",

@@ -8,7 +8,8 @@ import std/[
 import parsetoml
 
 import ./fae/[
-  tomlhelpers
+  tomlhelpers,
+  semver
 ]
 
 const LatestFaeFormat = 0
@@ -17,18 +18,14 @@ const LatestFaeFormat = 0
 type
   PinKind* = enum
     # TODO: Replace `Reference` with a more appropriate name
-    Version, Reference
-
-  SemVer* = object
-    major*, minor*, patch*: int
-    prerelease*, buildMetadata*: seq[string]
+    Unset, Version, Reference
 
   PkgManifest* = object
     format*: uint
     metadata* {.rename: "package".}: PkgMetadata
     # ordered table so it can be serialised in the same order
     repositories*: OrderedTable[string, Repository]
-    dependencies*: OrderedTable[string, PkgDependency]
+    dependencies*: seq[PkgDependency]
 
   PkgMetadata* = object
     vcs*: string
@@ -39,7 +36,7 @@ type
     bin*: seq[string]
     documentation*, source*, homepage*: Option[string]
     # For any data that isn't relevant to Fae, but exists for other tools
-    ext*: Option[TomlTable]
+    ext*: TomlTable
 
   Repository* = object
     vcs*: string
@@ -59,6 +56,27 @@ type
     version* {.tag("pin", Version).}: Option[SemVer]
     # Left as a string since it's interpreted by the vcs plugin
     refr* {.rename: "ref", tag("pin", Reference).}: Option[string]
+
+
+proc fromTomlImpl*(
+  res: var PkgDependency,
+  t: TomlValueRef,
+  conf: TomlDecoderConfig
+) =
+  mixin fromTomlImpl
+
+  tomlhelpers.fromTomlImpl(res, t, conf)
+
+  if res.version.isSome and res.refr.isSome:
+    raise newException(KeyError, "Cannot specify both `version` and `ref`!")
+
+  if res.version.isNone and res.refr.isNone:
+    raise newException(KeyError, "Must specify either `version` or `ref`!")
+
+  if res.version.isNone:
+    res.pin = Reference
+  else:
+    res.pin = Version
 
 
 echo PkgManifest.fromToml(parseFile("fae.toml"))
