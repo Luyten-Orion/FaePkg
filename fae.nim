@@ -6,6 +6,7 @@ import std/[
 ]
 
 import parsetoml
+import gittyup
 
 import ./fae/[
   tomlhelpers,
@@ -79,4 +80,10 @@ proc fromTomlImpl*(
     res.pin = Version
 
 
-echo PkgManifest.fromToml(parseFile("fae.toml"))
+let manifest = PkgManifest.fromToml(parseFile("fae.toml"))
+
+echo manifest
+
+# This stuff should likely be split into a fae-git plugin that is shipped by
+# default
+

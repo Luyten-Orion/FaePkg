@@ -37,7 +37,7 @@ proc fromTomlImpl*(
   t2: TomlValueRef,
   conf: TomlDecoderConfig
 ) =
-  deepCopy(t, t2[])
+  t = t2[]
 
 
 proc fromTomlImpl*[T: object](
