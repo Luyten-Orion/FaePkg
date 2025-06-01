@@ -38,20 +38,22 @@ bin = ["src/fae.nim"]
 [package.ext]
 tags = ["nimskull", "package-manager", "cli"]
 
-[repositories.gh]
+[forges.gh]
 vcs = "git"
-# The order of the list defines the priority used, this can be overridden
-# in the VCS plugin config.
-protocols = ["git+ssh", "git+https", "git+http"]
 host = "github.com"
 
 [[dependencies]]
 src = "gh:NimParsers/parsetoml"
-ref = "#d297f5a"
+#ref = "d297f5a"
+version = "0.7.2"
 
 [[dependencies]]
 src = "gh:disruptek/gittyup"
 version = "3.2.2"
+
+[[dependencies]]
+src = "gh:disruptek/gram"
+version = "0.4.1"
 
 #a-dep = {
 # vcs = "git",

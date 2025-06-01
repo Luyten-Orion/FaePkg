@@ -1,0 +1,10 @@
+# This should NEVER get committed to your repository, this is potentially
+# sensitive data if you're working with private repos!
+# TODO: Write a format for this
+format = 0
+
+[vcs.git]
+# Need a way to define the base URI
+
+[forge.gh]
+# Need a way to define the base URI

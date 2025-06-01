@@ -13,3 +13,12 @@
 [submodule "deps/gittyup"]
 	path = deps/gittyup
 	url = https://github.com/disruptek/gittyup
+[submodule "deps/grok"]
+	path = deps/grok
+	url = https://github.com/disruptek/grok
+[submodule "deps/skiplists"]
+	path = deps/skiplists
+	url = https://github.com/disruptek/skiplists
+[submodule "deps/gram"]
+	path = deps/gram
+	url = https://github.com/disruptek/gram

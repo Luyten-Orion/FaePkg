@@ -3,7 +3,8 @@ import std/[
   sequtils,
   options,
   tables,
-  macros
+  macros,
+  uri
 ]
 
 import parsetoml
@@ -115,6 +116,15 @@ proc fromTomlImpl*(
 ) =
   assert t.kind == TomlValueKind.String
   res = t.getStr
+
+
+proc fromTomlImpl*(
+  res: var Uri,
+  t: TomlValueRef,
+  conf: TomlDecoderConfig
+) =
+  assert t.kind == TomlValueKind.String
+  res = parseUri(t.getStr)
 
 
 proc fromTomlImpl*[T: SomeInteger](
