@@ -123,7 +123,8 @@ proc fromTomlImpl*(
   t: TomlValueRef,
   conf: TomlDecoderConfig
 ) =
-  assert t.kind == TomlValueKind.String
+  assert t.kind == TomlValueKind.String, "Uri must be a string but got: " &
+    $t.kind
   res = parseUri(t.getStr)
 
 
@@ -177,9 +178,28 @@ proc fromTomlImpl*[T](
   mixin fromTomlImpl
   assert t.kind == TomlValueKind.Table
 
+  template defaultVal: T = (when T is ref: new(T) else: default(T))
+
   for key, value in t.getTable:
-    res[key] = when T is ref: new(T) else: default(T)
+    res[key] = defaultVal()
     res[key].fromTomlImpl(value, conf)
+
+
+proc fromTomlImpl*[T, U](
+  res: var (Table[T, U] | OrderedTable[T, U]),
+  t: TomlValueRef,
+  conf: TomlDecoderConfig
+) =
+  mixin fromTomlImpl
+  assert t.kind == TomlValueKind.Table
+
+  template defaultVal(V: typedesc[T | U]): V = (when V is ref: new(V) else: default(V))
+
+  for key, value in t.getTable:
+    var k = defaultVal(T)
+    k.fromTomlImpl(?key, conf)
+    res[k] = defaultVal(U)
+    res[k].fromTomlImpl(value, conf)
 
 
 proc fromTomlImpl*[T: ref](
