@@ -82,7 +82,7 @@ type
   PkgNode = object
     id*: string
     versions*: seq[string]
-    # clv: current lowest version
+    # clv = current lowest version
     clv*: SemVer
 
   PkgEdge = void

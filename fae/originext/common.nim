@@ -2,6 +2,8 @@ import std/[
   uri # When working with origins, URIs are used since they provide needed info
 ]
 
+import parsetoml
+
 #[
 TODO:
  * Add a way to have origin-specific configs (probably a JsonNode object?)
@@ -23,8 +25,12 @@ type
 
   OriginCloneResult* = Result[string, OriginCloneErr]
 
+  # Used for passing around config data
+  OriginContext* = ref object of RootObj
+
   OriginAdapter* = ref object of RootObj
     # Cloning and fetching are similar enough operations anyway
+    constructCtxCb(config: T)
     cloneCb: proc(uri: Uri): OriginCloneResult
     fetchCb: proc(uri: Uri): OriginCloneResult
 
