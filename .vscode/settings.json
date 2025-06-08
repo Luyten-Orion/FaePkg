@@ -1,5 +1,7 @@
 {
     "nim.project": [
         "fae.nim"
-    ]
+    ],
+    "nim.useNimsuggestCheck": false,
+    //"nim."
 }

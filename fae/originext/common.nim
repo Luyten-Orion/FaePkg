@@ -25,14 +25,21 @@ type
 
   OriginCloneResult* = Result[string, OriginCloneErr]
 
+  OriginTagList* = object
+    tags*: seq[string]
+
   # Used for passing around config data
   OriginContext* = ref object of RootObj
 
   OriginAdapter* = ref object of RootObj
+    
+    # ----Callback functions----
+    constructCtxCb: proc(config: TomlValueRef): OriginContext
     # Cloning and fetching are similar enough operations anyway
-    constructCtxCb(config: T)
     cloneCb: proc(uri: Uri): OriginCloneResult
     fetchCb: proc(uri: Uri): OriginCloneResult
+    tagsCb: proc()
+
 
 
 proc newOriginAdapter*(
@@ -42,8 +49,16 @@ proc newOriginAdapter*(
   OriginAdapter(cloneCb: cloneCb, fetchCb: fetchCb)
 
 
+proc constructCtx*(
+  oa: OriginAdapter,
+  config: TomlValueRef
+): OriginContext {.inline.} = oa.constructCtxCb(config)
+
 proc clone*(oa: OriginAdapter, uri: Uri): OriginCloneResult {.inline.} =
   oa.cloneCb(uri)
 
 proc fetch*(oa: OriginAdapter, uri: Uri): OriginCloneResult {.inline.} =
   oa.fetchCb(uri)
+
+proc tags*(oa: OriginAdapter): OriginTagList {.inline.} =
+  oa.tagsCb()

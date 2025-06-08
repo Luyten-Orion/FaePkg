@@ -6,16 +6,10 @@ import std/[
   sequtils,
   # Used to signify an optional field in the manifest
   options,
-  # Used for passing a custom environment to the `osproc` module
-  strtabs,
   # For key-table mappings, such as the `forges` field
   tables,
-  # Used for `startProcess` (cloning/fetching from git)
-  osproc,
   # Used for URI handling
-  uri,
-  # Used for path handling
-  os
+  uri
 ]
 
 # Used for `parseFile` specifically
