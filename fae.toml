@@ -41,6 +41,9 @@ tags = ["nimskull", "package-manager", "cli"]
 [forges.gh]
 origin = "git"
 host = "github.com"
+# This can be overrided, the 'scheme' section is ideally only for binary
+# projects
+#config = { scheme = "https" }
 
 [[dependencies]]
 src = "gh:NimParsers/parsetoml"

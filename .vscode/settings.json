@@ -3,5 +3,5 @@
         "fae.nim"
     ],
     "nim.useNimsuggestCheck": false,
-    //"nim."
+    "nim.provider": "nimsuggest"
 }

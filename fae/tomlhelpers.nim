@@ -15,7 +15,7 @@ template rename*(name: string) {.pragma.}
 # TODO: Make `tag` work... basically, fix case object deserialisation
 template tag*(field: string, value: Ordinal) {.pragma.}
 template ignore* {.pragma.}
-template optional* {.pragma.}
+template optional*[T: not void](default: T) {.pragma.}
 
 
 type
@@ -30,6 +30,16 @@ const DefaultDecoderConfig = TomlDecoderConfig(
   rejectUnknownFields: true,
   allowMissingFields: false
 )
+
+
+macro errorAtNode*(
+  obj: typedesc,
+  msg: static string
+) =
+  # TODO: error at the right place (exact problematic field name)
+  error(
+    msg, obj.getTypeImpl[1].getType
+  )
 
 
 # Decoding stuff
@@ -63,7 +73,28 @@ proc fromTomlImpl*[T: object](
   for nm, field in res.fieldPairs:
     if not hasCustomPragma(field, ignore):
       fieldNames.add getFieldName(nm, field)
-      when field is (seq | Option | OrderedTable | Table):
+
+      when hasCustomPragma(field, optional):
+        # TODO: Restructure this so `optional` default value isn't assigned if
+        # the field has been explicitly set?
+        const
+          OptionalDefault = getCustomPragmaVal(field, optional).default
+          AssignmentCompiles = compiles do: field = OptionalDefault
+
+        when not AssignmentCompiles:
+          const
+            FieldName = nm
+            FieldTypStr = $typeof(OptionalDefault)
+
+          errorAtNode(T,
+            ("Field `$1` is of type `$2`, but the optional value is of" &
+            " type `$3`!") % [FieldName, $typeof(field), FieldTypStr]
+          )
+        else:
+          field = OptionalDefault
+          optionalFields.add getFieldName(nm, field)
+
+      elif field is (seq | Option | OrderedTable | Table):
         optionalFields.add getFieldName(nm, field)
 
   let
@@ -188,12 +219,13 @@ proc fromTomlImpl*[T](
 proc fromTomlImpl*[T, U](
   res: var (Table[T, U] | OrderedTable[T, U]),
   t: TomlValueRef,
-  conf: TomlDecoderConfig
+  conf: TomlDecoderConfig,
 ) =
   mixin fromTomlImpl
   assert t.kind == TomlValueKind.Table
 
-  template defaultVal(V: typedesc[T | U]): V = (when V is ref: new(V) else: default(V))
+  template defaultVal(V: typedesc[T | U]): V =
+    when V is ref: new(V) else: default(V)
 
   for key, value in t.getTable:
     var k = defaultVal(T)
@@ -208,8 +240,10 @@ proc fromTomlImpl*[T: ref](
   conf: TomlDecoderConfig
 ) =
   mixin fromTomlImpl
+
   if res == nil:
-    res = new(T)
+    res = T()
+
   res[].fromTomlImpl(t, conf)
 
 
@@ -228,7 +262,7 @@ proc fromTomlImpl*[T](
     res = some(move(inner))
 
 
-proc fromToml*[T: not ref](
+proc fromToml*[T](
   _: typedesc[T],
   t: TomlValueRef,
   conf = DefaultDecoderConfig
@@ -236,15 +270,3 @@ proc fromToml*[T: not ref](
   mixin fromTomlImpl
 
   result.fromTomlImpl(t, conf)
-
-
-proc fromToml*[T: ref](
-  _: typedesc[T],
-  t: TomlValueRef,
-  conf = DefaultDecoderConfig
-): T =
-  mixin fromTomlImpl
-
-  result = T()
-
-  result[].fromTomlImpl(t, conf)

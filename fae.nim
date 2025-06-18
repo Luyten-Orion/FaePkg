@@ -26,6 +26,19 @@ import ./fae/schema/[
   v0 # First version of Fae's schema.
 ]
 
+import fae/originext/[
+  common,
+  git
+]
+
+
+#[
+TODO:
+
+  * Expand all URIs *before* they reach the origin adapters!
+]#
+
+
 
 const LatestFaeFormat* = 0
 
@@ -40,20 +53,30 @@ assert manifest.metadata.origin == "git", "Only git repositories are supported!"
 var
   schemes: Table[string, Uri]
   dependencies: seq[PkgDependency]
+  adapters: Table[string, OriginAdapter]
 
-for scheme, repoInfo in manifest.forges.pairs:
+for scheme, forge in manifest.forges.pairs:
   # TODO: Allow people to override this somehow... Maybe a
   # `.fae-overrides.toml` that isn't committed to a VCS? So people could use
   # an access token, for example.
 
-  # Also, I don't like the way this is defined lmao, the protocols should likely
-  # be hardcoded, rather than making ppl specify it, this also supports the impl
-  # of a `.fae-overrides`, but my concern is the amount of TOML files specific
-  # to Fae that people would need for stuff like a monorepo that pulls in
-  # private dependencies from multiple places
-  assert repoInfo.origin == "git", "Only git repositories are supported!"
+  # TODO: Implement the replacement stage where the `replacements` from the
+  # manifest are first performed, and then the overrides from the overrides file
+  assert forge.origin == "git", "Only git repositories are supported!"
 
-  schemes[scheme] = Uri(scheme: "https", hostname: repoInfo.host)
+  adapters[scheme] = block:
+    if forge.config.isSome:
+      newGitAdapter(forge.config.unsafeGet)
+    else:
+      newGitAdapter(newTTable())
+
+  adapters[scheme].ctx.host = forge.host
+
+  # TODO: Have plugins provide a 'default scheme' and also use the scheme
+  # defined in the manifest/overrides.
+  schemes[scheme] = adapters[scheme].normaliseUri(
+    Uri(scheme: "https", hostname: forge.host)
+  )
 
 
 for mdep in manifest.dependencies:
@@ -71,7 +94,7 @@ for mdep in manifest.dependencies:
 
   echo dep
 
-
+#[
 type
   PkgNode = object
     id*: string
@@ -89,3 +112,5 @@ proc newPkgGraph(): PkgGraph {.inline.} =
   result = newGraph[T.N, T.E](T.F)
 
 var depGraph = newPkgGraph()
+]#
+

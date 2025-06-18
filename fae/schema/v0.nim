@@ -1,7 +1,8 @@
 import std/[
-  options, # Used to signify optional fields in the manifest
-  tables,  # Used for key-table mappings, such as the `forges` field
-  uri      # Used for the URIs used in dependency declaration
+  strutils, # To normalise the forge scheme declaration
+  options,  # Used to signify optional fields in the manifest
+  tables,   # Used for key-table mappings, such as the `forges` field
+  uri       # Used for the URIs used in dependency declaration
 ]
 
 import parsetoml # Used for the `TomlTable` type
@@ -21,7 +22,7 @@ type
     format*: uint
     metadata* {.rename: "package".}: PkgMetadata
     # ordered table so it can be serialised in the same order
-    forges*: OrderedTable[string, Repository]
+    forges*: OrderedTable[string, Forge]
     dependencies*: seq[PkgDependency]
     replacements*: Table[Uri, PkgReplacement]
 
@@ -36,12 +37,10 @@ type
     # For any data that isn't relevant to Fae, but exists for other tools
     ext*: TomlTable
 
-  Repository* = object
+  Forge* = object
     origin*: string
-    # TODO: Maybe remove this from design, it'll be unnecessary if we use a sane
-    # default, and allow overriding via `.fae-overrides.toml`
-    #protocols*: seq[string]
     host*: string
+    config*: Option[TomlValueRef]
 
   # The name of the dependency is irrelevant to Fae, since it'll use the name
   # the repo is checked out as, unless explicitly overridden with `relocate`
@@ -62,6 +61,21 @@ type
     pin* {.ignore.}: PinKind
     version* {.tag("pin", Version).}: Option[SemVer]
     refr* {.rename: "ref", tag("pin", Reference).}: Option[string]
+
+
+proc fromTomlImpl*(
+  res: var OrderedTable[string, Forge],
+  t: TomlValueRef,
+  conf: TomlDecoderConfig
+) =
+  mixin fromTomlImpl
+  assert t.kind == TomlValueKind.Table
+
+  for key, value in t.getTable:
+    let nKey = key.toLowerAscii
+
+    res[nKey] = Forge()
+    res[nKey].fromTomlImpl(value, conf)
 
 
 proc validateAndSetPin(
