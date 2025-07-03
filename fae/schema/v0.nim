@@ -39,7 +39,7 @@ type
 
   Forge* = object
     origin*: string
-    host*: string
+    host*: Option[string]
     config*: Option[TomlValueRef]
 
   # The name of the dependency is irrelevant to Fae, since it'll use the name
@@ -86,16 +86,17 @@ proc validateAndSetPin(
     if not allowUnset:
       raise e
 
-  if res.version.isSome and res.refr.isSome:
-    maybeRaise newException(KeyError,
-      "Cannot specify both `version` and `ref`!")
-
   if res.version.isNone and res.refr.isNone:
-    maybeRaise newException(KeyError, "Must specify either `version` or `ref`!")
+    maybeRaise newException(KeyError, "Must specify the `version` and " &
+    "the `ref` if needed!")
     # If this branch runs and doesn't throw, then we can leave `pin` unset
     return
 
   if res.version.isNone:
+    maybeRaise newException(KeyError, "Must specify `version`! This is used " &
+      "dependency resolution!")
+
+  if res.refr.isSome:
     res.pin = Reference
   else:
     res.pin = Version

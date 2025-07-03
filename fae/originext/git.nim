@@ -1,9 +1,11 @@
 import std/[
   # For string splitting (mostly on paths)
   strutils,
+  # Used for converting iterators to sequences
+  sequtils,
   # For passing a custom environment to the `startProcess` function
   strtabs,
-  # For reading the output stream of a process
+  # For reading the process output
   streams,
   # For key-table mappings, such as the `repoToLoc` field
   tables,
@@ -37,13 +39,8 @@ type
   GitAdapter* = ref object of OriginAdapter
 
   GitContext* = ref object of OriginContext
-    scheme* {.optional: "https".}: string
     caseSensitivePath* {.rename: "case-sensitive-path", optional(false).}: bool
-
-
-# Maaaybe put this in common.nim? Also assuming `uri`s have been normalised.
-proc uriToPath(uri: Uri): string =
-  ".fae" / "deps" / ($secureHash($uri))[0..8].toLowerAscii
+    uriToPath* {.ignore.}: Table[Uri, string]
 
 
 proc ctx*(ga: GitAdapter): GitContext =
@@ -53,7 +50,7 @@ proc ctx*(ga: GitAdapter): GitContext =
   GitContext(ga.ctx)
 
 
-proc gitExec(args: varargs[string], workingDir = ""): Process =
+proc gitExec(args: openArray[string], workingDir = ""): Process =
   let
     env {.global.} = {
       # TODO: Add custom handling for the respective askpass commands
@@ -68,12 +65,13 @@ proc gitExec(args: varargs[string], workingDir = ""): Process =
     raise newException(OSError, "The `git` binary couldn't be found!")
 
   startProcess(gitBin, args = args, env = env, workingDir = workingDir,
-    options = {poStdErrToStdOut})
+    options = {poUsePath, poStdErrToStdOut})
 
 
-proc normaliseImpl(ctx: GitContext, uri: Uri): Uri =
-  result = uri
-  if ctx.caseSensitivePath: result.path |= toLowerAscii
+# TODO: Use sanitised paths based on the given URI rather than a trimmed hash
+proc getDirImpl(ctx: GitContext, uri: Uri): string =
+  ctx.uriToPath.mgetOrPut(
+    uri, ".fae" / "deps" / ($secureHash($uri))[0..8].toLowerAscii)
 
 
 template cloneOrFetchErrors(result: var OriginFetchResult, output: seq[string]) =
@@ -99,7 +97,16 @@ template cloneOrFetchErrors(result: var OriginFetchResult, output: seq[string]) 
 proc cloneImpl(ctx: GitContext, uri: Uri): OriginFetchResult =
   # TODO: Extract this logic into `common.nim`, or maybe something higher that
   # polls each process until complete. `std/tasks` seems good for this.
-  let p = gitExec("clone", "--no-checkout", $uri, uriToPath(uri))
+  let path = ctx.getDirImpl(uri)
+
+  if path.dirExists and toSeq(path.walkDir).len > 0:
+    return OriginFetchResult.err(OriginFetchErr(kind: NonEmptyTargetDir))
+
+  if path.fileExists:
+    return OriginFetchResult.err(OriginFetchErr(kind: TargetIsFile))
+
+  let p = gitExec(["clone", "--no-checkout", $uri, ctx.getDirImpl(uri)])
+  defer: p.close
 
   while p.peekExitCode == -1:
     sleep(1000)
@@ -113,7 +120,8 @@ proc cloneImpl(ctx: GitContext, uri: Uri): OriginFetchResult =
 
 
 proc fetchImpl(ctx: GitContext, uri: Uri): OriginFetchResult =
-  let p = gitExec("fetch", "--all", workingDir = uriToPath(uri))
+  let p = gitExec(["fetch", "--all"], ctx.getDirImpl(uri))
+  defer: p.close
 
   while p.peekExitCode == -1:
     sleep(1000)
@@ -128,7 +136,7 @@ proc fetchImpl(ctx: GitContext, uri: Uri): OriginFetchResult =
 
 proc tagsImpl(ctx: GitContext, uri: Uri): OriginTagsResult =
   let repo = block:
-    let x = repositoryOpen(uriToPath(uri))
+    let x = repositoryOpen(ctx.getDirImpl(uri))
 
     if x.isErr:
       return OriginTagsResult.err(x.error.dumpError)
@@ -148,7 +156,7 @@ proc tagsImpl(ctx: GitContext, uri: Uri): OriginTagsResult =
 
 proc checkoutImpl(ctx: GitContext, uri: Uri, tag: string): bool =
   let repo = block:
-    let x = repositoryOpen(uriToPath(uri))
+    let x = repositoryOpen(ctx.getDirImpl(uri))
 
     if x.isErr:
       # Failed to checkout
@@ -168,18 +176,31 @@ proc checkoutImpl(ctx: GitContext, uri: Uri, tag: string): bool =
   not bool(repo.checkoutTree(thing))
 
 
+# TODO: Maybe add/remove the .git extension to the path?
+proc normaliseImpl(ctx: GitContext, uri: Uri): Uri =
+  result = uri
+  if ctx.caseSensitivePath: result.path |= toLowerAscii
+
+
 # TODO: Maybe have a central place where this adapter is registered in a table?
 proc newGitAdapter*(config: TomlValueRef): OriginAdapter =
   template gitCtx(i: OriginContext): GitContext = GitContext(i)
 
   result = OriginAdapterCallbacks(
+    getDir: (i: OriginContext, a: Uri) => getDirImpl(gitCtx(i), a),
     clone: (i: OriginContext, a: Uri) => cloneImpl(gitCtx(i), a),
     fetch: (i: OriginContext, a: Uri) => fetchImpl(gitCtx(i), a),
     tags: (i: OriginContext, a: Uri) => tagsImpl(gitCtx(i), a),
     checkout: (i: OriginContext, a: Uri, b: string) => checkoutImpl(
       gitCtx(i), a, b
     ),
-    normaliseUri: (i: OriginContext, a: Uri) => normaliseImpl(gitCtx(i), a)
+    normaliseUri: (i: OriginContext, a: Uri) => normaliseImpl(gitCtx(i), a),
+    isRemote: () => true
   ).newOriginAdapter
 
   result.ctx = GitContext.fromToml(config)
+
+  if result.ctx.scheme == "": result.ctx.scheme = "https"
+  else:
+    if result.ctx.scheme notin ["http", "https", "ssh", "git"]:
+      quit "The scheme must be either `http`, `https`, `ssh` or `git`!", 1

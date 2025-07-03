@@ -25,11 +25,13 @@ TODO:
 
 type
   OriginCloneErrEnum* = enum
-    NotFound, TimedOut, Unreachable, Unauthorised, Other
+    NotFound, TimedOut, Unreachable, Unauthorised,
+    NonEmptyTargetDir, TargetIsFile, Other
 
   OriginFetchErr* = object
     case kind*: OriginCloneErrEnum
-    of {NotFound, TimedOut, Unreachable, Unauthorised}: discard
+    of {NotFound, TimedOut, Unreachable, Unauthorised, NonEmptyTargetDir,
+      TargetIsFile}: discard
     of Other: msg*: string
 
   # TODO: Custom general-purpose 'Process' type
@@ -42,24 +44,28 @@ type
   OriginTagsResult* = Result[OriginTags, string]
 
   # Callback types
+  OriginGetDirProc* = (OriginContext, Uri) -> string
   OriginCloneProc* = (OriginContext, Uri) -> OriginFetchResult
   OriginFetchProc* = (OriginContext, Uri) -> OriginFetchResult
   OriginTagsProc* = (OriginContext, Uri) -> OriginTagsResult
   OriginCheckoutProc*  = (OriginContext, Uri, string) -> bool
   OriginNormaliseUriProc* = (OriginContext, Uri) -> Uri
 
+  # TODO: Add 'hash' callback or something similar, for verifying integrity.
   OriginAdapterCallbacks* = object
+    getDir*: OriginGetDirProc
     clone*: OriginCloneProc
     fetch*: OriginFetchProc
     tags*: OriginTagsProc
     checkout*: OriginCheckoutProc
     normaliseUri*: OriginNormaliseUriProc
+    isRemote*: void -> bool
 
   # Used for passing around config data
   # TODO: Have some 'base configuration' set here, for dep dir locs for example.
   OriginContext* = ref object of RootObj
-    # Probably move this to the specific adapters, since 'Local' won't have
-    # any hosts.
+    scheme* {.optional("").}: string
+    # Leave `host` empty if not applicable
     host* {.ignore.}: string
 
   OriginAdapter* = ref object of RootObj
@@ -88,11 +94,16 @@ proc normaliseUri*(oa: OriginAdapter, uri: Uri): Uri =
 
   result.scheme |= toLowerAscii
   result.hostname |= toLowerAscii
-  if result.path == "": result.path = "/"
+  # maybe don't do this?
+  if not result.opaque and result.path == "": result.path = "/"
+  # lets be more elegant than this...
   if result.port != "": result.port = $parseInt(result.port)
 
   result = oa.cb.normaliseUri(oa.ctx, result)
 
+
+proc getDir*(oa: OriginAdapter, uri: Uri): string =
+  oa.cb.getDir(oa.ctx, oa.normaliseUri(uri))
 
 proc clone*(oa: OriginAdapter, uri: Uri): OriginFetchResult {.inline.} =
   oa.cb.clone(oa.ctx, oa.normaliseUri(uri))
@@ -102,3 +113,6 @@ proc fetch*(oa: OriginAdapter, uri: Uri): OriginFetchResult {.inline.} =
 
 proc tags*(oa: OriginAdapter, uri: Uri): OriginTagsResult {.inline.} =
   oa.cb.tags(oa.ctx, oa.normaliseUri(uri))
+
+proc isRemote*(oa: OriginAdapter): bool {.inline.} =
+  oa.cb.isRemote()
