@@ -1,4 +1,6 @@
 import std/[
+  # For clean string interpolation
+  strformat,
   # For string splitting (mostly on paths)
   strutils,
   # For converting iterators to seqs, preventing errors on when a table's keys
@@ -50,50 +52,77 @@ TODO:
 const LatestFaeFormat* = 0
 
 
+type
+  FaeState* = ref object
+    graph*: PkgGraph
+    root*: Node[GraphPackage, GraphRelation]
+    # `gh` -> `https://github.com`, for example
+    #schemeUriMap*: Table[string, Uri]
+    # For traversing the dependencies in each dependency...
+    dependencies*: seq[PkgDependency]
+    adapters*: Table[string, OriginAdapter]
+
+
+proc new*(T: typedesc[FaeState]): T =
+  T(
+    graph: newPkgGraph(),
+    root: nil,
+    #schemeUriMap: newTable[string, Uri](),
+    adapters: newTable[string, OriginAdapter]()
+  )
+
+
+proc register(s: FaeState, scheme: string, a: OriginAdapter): OriginAdapter =
+  result = a
+
+  if scheme in s.adapters and s.adapters[scheme] != a:
+    # TODO: Figure out how the fuck to handle this??? Likely not an issue if we
+    # provide forge definitions for the most widely known ones, but still...
+    quit "The scheme `" & scheme &
+      "` is already registered with a different config!", 1
+
+  s.adapters[scheme] = result
+
+
+proc adapter(s: FaeState, scheme: string): OriginAdapter =
+  if scheme notin s.adapters:
+    quit "The scheme `" & scheme & "` is not registered!", 1
+
+  s.adapters[scheme]
+
+
+proc schemes(s: FaeState): seq[string] = toSeq(s.adapters.keys)
+
+
 let manifest = PkgManifest.fromToml(parseFile("fae.toml"))
 
-assert manifest.metadata.origin == "git", "Only git repositories are supported!"
+# Have an `OriginRegistry` perhaps, for registering the relevant adapter to vcs
+assert manifest.metadata.origin == "git", "Only git forges are supported!"
 
-# The git stuff should likely be split into a fae-git plugin that is shipped by
-# default
 
-var
-  schemes: Table[string, Uri]
-  dependencies: seq[PkgDependency]
-  adapters: Table[string, OriginAdapter]
-  uriToScheme: Table[Uri, string]
+proc processManifest(s: FaeState, manifest: PkgManifest) =
+  for scheme, forge in manifest.forges.pairs:
+    assert forge.origin == "git", "Only git forges are supported!"
 
-for scheme, forge in manifest.forges.pairs:
-  # TODO: Allow people to override this somehow... Maybe a
-  # `.fae-overrides.toml` that isn't committed to a VCS? So people could use
-  # an access token, for example.
+    let adapter = s.register(
+      scheme, newGitAdapter(forge.config.get(newTTable())))
+    
+    if adapter.isRemote:
+      if forge.host.isNone:
+        quit "The `host` must be declared in the manifest for this origin!", 1
+      adapter.ctx.host = forge.host.unsafeGet
 
-  # TODO: Implement the replacement stage where the `replacements` from the
-  # manifest are first performed, and then the overrides from the overrides file
-  assert forge.origin == "git", "Only git repositories are supported!"
 
-  let adapter = block:
-    if forge.config.isSome:
-      # TODO: Don't hardcode the adapter, use a generic 'adapter registry' that
-      # has the type `TomlValueRef -> OriginAdapter`, seems to be the best idea
-      newGitAdapter(forge.config.unsafeGet)
-    else:
-      newGitAdapter(newTTable())
+# TODO: Probably should remove the mutability of the dependencies
+proc processDep*(s: FaeState, dep: var PkgDependency, a: OriginAdapter) =
+  if dep.src.scheme notin s.schemes:
+    quit "The scheme `" & dep.src.scheme & "` is not registered!", 1
 
-  # can be overridden by manifest/overrides
-  schemes[scheme] = adapter.normaliseUri(
-    Uri(scheme: adapter.ctx.scheme, opaque: true))
+  if dep.src.scheme notin s.schemes:
+    quit "The scheme `" & dep.src.scheme & "` is not supported!", 1
 
-  if adapter.isRemote:
-    if forge.host.isNone:
-      quit "The `host` must be declared in the manifest for this origin!", 1
+  dep.src = a.expandUri(dep.src)
 
-    let ctx = adapter.ctx
-    ctx.host = forge.host.unsafeGet
-    schemes[scheme].opaque = false
-    schemes[scheme].hostname = ctx.host
-
-  adapters[scheme] = adapter
 
 
 for mdep in manifest.dependencies:
@@ -179,12 +208,40 @@ proc addDependency*(
 
   discard g.edge(p, GraphRelation(requires: d.version.unsafeGet), node)
 
-  node
+  return node
+
+
+proc processDependencies*(
+  g: var PkgGraph,
+  root: Node[g.N, g.E]
+) =
+  var
+    tbl: OrderedTable[Node[g.N, g.E], seq[Edge[g.N, g.E]]]
+    nodes = @[root]
+
+  while nodes.len > 0:
+    let n = nodes.pop
+
+    for edge, target in n.outgoing:
+      nodes.add target
+
+      discard tbl.hasKeyOrPut(target, @[])
+      tbl[target].add edge
+
+  for k, v in tbl.pairs:
+    echo "============"
+    echo k.value
+    echo "---values---"
+    for i in v:
+      echo i.value
+    echo "============"
+
+
 
 var depGraph = newPkgGraph()
 
 
-var rootNode =  depGraph.add GraphPackage(
+var rootNode = depGraph.add GraphPackage(
   name: "root",
   kind: pRoot,
   resolutionMethodKind: prmEnforced,
@@ -251,3 +308,5 @@ for dep in dependencies:
   # TODO: URI to node mapping? Might be unnecessary though.
   discard depGraph.addDependency(adapters[scheme], rootNode, dep)
 
+
+depGraph.processDependencies(rootNode)

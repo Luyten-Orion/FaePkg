@@ -13,6 +13,19 @@ type
     major*, minor*, patch*: int
     prerelease*, buildMetadata*: string
 
+  SemVerPrereleaseKind* = enum
+    spUnstable = "unstable"
+    spAlpha = "alpha"
+    spBeta = "beta"
+    spRC = "rc"
+
+  # Maybe replace this with a more flexible 'SemVerConstraint' object
+  SemVerRange* = object
+    # `-1` means unconstrained
+    major*, minor*, patch*: tuple[lo, hi: range[-1..int.high]]
+    # Depending on a prerelease is highly discouraged
+    permittedPrereleases*: set[SemVerPrereleaseKind]
+    prereleaseVersion*: range[-1..int.high]
 
 template asOpt[T](v: T): Option[T] =
   try:
@@ -67,11 +80,11 @@ proc cmp*(x, y: SemVer): int =
   ## SemVer compare proc.
   ## 
   ## Returns:
-  ## * `0` if exactly equal.
-  ## * `1` if `x` is compatible with `y`.
-  ## * `-1` if `y` is compatible with `x`.
-  ## * `2` if `x` is greater than `y`.
-  ## * `-2` if `y` is greater than `x`.
+  ## * `-2` if `x` is less than and incompatible with `y`.
+  ## * `-1` if `x` is less than and compatible with `y`.
+  ## * `0` if `x` is equal to `y`.
+  ## * `1` if `x` is greater than and compatible with `y`.
+  ## * `2` if `x` is greater than and incompatible with `y`.
   if (x.major, x.minor, x.patch) == (y.major, y.minor, y.patch):
     result = cmpPrel(x.prerelease, y.prerelease)
   else:

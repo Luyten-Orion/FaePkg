@@ -50,6 +50,7 @@ type
   OriginTagsProc* = (OriginContext, Uri) -> OriginTagsResult
   OriginCheckoutProc*  = (OriginContext, Uri, string) -> bool
   OriginNormaliseUriProc* = (OriginContext, Uri) -> Uri
+  OriginExpandUriProc* = (OriginContext, Uri) -> Uri
 
   # TODO: Add 'hash' callback or something similar, for verifying integrity.
   OriginAdapterCallbacks* = object
@@ -59,6 +60,7 @@ type
     tags*: OriginTagsProc
     checkout*: OriginCheckoutProc
     normaliseUri*: OriginNormaliseUriProc
+    expandUri*: OriginExpandUriProc
     isRemote*: void -> bool
 
   # Used for passing around config data
@@ -101,8 +103,11 @@ proc normaliseUri*(oa: OriginAdapter, uri: Uri): Uri =
 
   result = oa.cb.normaliseUri(oa.ctx, result)
 
+# Maybe add a 'shrinkUri' function? Can't think of a usecase yet, though.
+proc expandUri*(oa: OriginAdapter, uri: Uri): Uri =
+  oa.cb.expandUri(oa.ctx, oa.normaliseUri(uri))
 
-proc getDir*(oa: OriginAdapter, uri: Uri): string =
+proc getDir*(oa: OriginAdapter, uri: Uri): string {.inline.} =
   oa.cb.getDir(oa.ctx, oa.normaliseUri(uri))
 
 proc clone*(oa: OriginAdapter, uri: Uri): OriginFetchResult {.inline.} =

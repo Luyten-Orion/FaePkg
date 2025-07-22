@@ -1,4 +1,6 @@
 import std/[
+  # For clean string interpolation
+  strformat,
   # For string splitting (mostly on paths)
   strutils,
   # Used for converting iterators to sequences
@@ -68,18 +70,16 @@ proc gitExec(args: openArray[string], workingDir = ""): Process =
     options = {poUsePath, poStdErrToStdOut})
 
 
-# TODO: Use sanitised paths based on the given URI rather than a trimmed hash
-proc getDirImpl(ctx: GitContext, uri: Uri): string =
-  ctx.uriToPath.mgetOrPut(
-    uri, ".fae" / "deps" / ($secureHash($uri))[0..8].toLowerAscii)
-
-
-template cloneOrFetchErrors(result: var OriginFetchResult, output: seq[string]) =
+template cloneOrFetchErrors(
+  uri: Uri,
+  result: var OriginFetchResult,
+  output: seq[string]
+) =
   if "ERROR: Repository not found." in output:
     result.err(OriginFetchErr(kind: NotFound))
     return
 
-  elif "git@github.com: Permission denied (publickey)." in output:
+  elif &"git@{uri.hostname}: Permission denied (publickey)." in output:
     result.err(OriginFetchErr(kind: Unauthorised))
     return
 
@@ -92,6 +92,12 @@ template cloneOrFetchErrors(result: var OriginFetchResult, output: seq[string]) 
       return
 
   result.err(OriginFetchErr(kind: Other, msg: output.join("\n")))
+
+
+# TODO: Use sanitised paths based on the given URI rather than a trimmed hash
+proc getDirImpl(ctx: GitContext, uri: Uri): string =
+  ctx.uriToPath.mgetOrPut(
+    uri, ".fae" / "deps" / ($secureHash($uri))[0..8].toLowerAscii)
 
 
 proc cloneImpl(ctx: GitContext, uri: Uri): OriginFetchResult =
@@ -116,7 +122,7 @@ proc cloneImpl(ctx: GitContext, uri: Uri): OriginFetchResult =
 
   let output = p.outputStream.readAll.splitLines
 
-  cloneOrFetchErrors(result, output)
+  cloneOrFetchErrors(uri, result, output)
 
 
 proc fetchImpl(ctx: GitContext, uri: Uri): OriginFetchResult =
@@ -131,7 +137,7 @@ proc fetchImpl(ctx: GitContext, uri: Uri): OriginFetchResult =
 
   let output = p.outputStream.readAll.splitLines
 
-  cloneOrFetchErrors(result, output)
+  cloneOrFetchErrors(uri, result, output)
 
 
 proc tagsImpl(ctx: GitContext, uri: Uri): OriginTagsResult =
@@ -176,10 +182,24 @@ proc checkoutImpl(ctx: GitContext, uri: Uri, tag: string): bool =
   not bool(repo.checkoutTree(thing))
 
 
+# TODO: Maybe abstract away the URI directly? No real reason to expose it.
 # TODO: Maybe add/remove the .git extension to the path?
 proc normaliseImpl(ctx: GitContext, uri: Uri): Uri =
   result = uri
   if ctx.caseSensitivePath: result.path |= toLowerAscii
+
+
+proc expandUriImpl(ctx: GitContext, uri: Uri): Uri =
+  ## The only parts of the URI that we respect is the path,
+  ## and maybe the query.
+  # TODO: Query likely needs to be examined and processed separately,
+  # for things like subdirectories...
+  result = Uri(scheme: ctx.scheme, hostname: ctx.host, path: uri.path,
+    query: uri.query)
+
+  # Not sure how to handle this rn.
+  if result.scheme == "ssh":
+    result.username = "git"
 
 
 # TODO: Maybe have a central place where this adapter is registered in a table?
@@ -195,6 +215,7 @@ proc newGitAdapter*(config: TomlValueRef): OriginAdapter =
       gitCtx(i), a, b
     ),
     normaliseUri: (i: OriginContext, a: Uri) => normaliseImpl(gitCtx(i), a),
+    expandUri: (i: OriginContext, a: Uri) => expandUriImpl(gitCtx(i), a),
     isRemote: () => true
   ).newOriginAdapter
 
