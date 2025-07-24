@@ -1,6 +1,6 @@
 {
     "nim.project": [
-        "fae.nim"
+        "cli/main.nim",
     ],
     "nim.useNimsuggestCheck": false,
     "nim.provider": "nimsuggest"
