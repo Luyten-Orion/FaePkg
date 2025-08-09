@@ -1,3 +1,3 @@
-import ./schema/v0
+import ./schema/sv0
 
-export v0
+export sv0

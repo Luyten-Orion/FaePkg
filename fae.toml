@@ -9,10 +9,6 @@ license            = "MIT"
 #documentation      = "https://your.docs.url/here"
 source             = "https://github.com/Luyten-Orion/FaePkg"
 homepage           = "https://github.com/Luyten-Orion/FaePkg"
-# When importing fae, `engine` would be moved under `fae`, so to require the
-# `semver.nim` file, it'd be `import fae/semver`, if a project explicitly
-# imports certain sourcesets, it'd be `import fae/engine/semver`.
-default-sourcesets = ["engine"]
 
 [package.ext]
 tags = ["nimskull", "package-manager", "cli"]
@@ -21,6 +17,9 @@ tags = ["nimskull", "package-manager", "cli"]
 origin = "git"
 host   = "github.com"
 
+# the `main` sourceset is implicitly under the `fae` namespace, other sourcesets
+# declared by users, such as `engine` in Fae, would be located
+# under `fae/engine`
 [sourcesets.engine]
 # TODO: Maybe this should be `src-dirs` and accept a list? Personally dislike
 # idea though. Maybe `res-dir` should be a thing too? Though, not sure how we'd
@@ -35,6 +34,9 @@ src-dir = "cli"
 # sourcesets inherit the `default-sourcesets` as dependencies by default.
 
 # `fae` is a reserved scheme that refers to the current manifest.
+# you can't import a specific version of a sourceset within your own package,
+# but this functionality probably wouldn't be too hard? Will look into it in the
+# future
 dependencies = [{src = "fae:engine"}]
 
 [sourcesets.test]
