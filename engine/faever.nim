@@ -215,23 +215,23 @@ proc nextMinor*(v: FaeVer): FaeVer =
 # version that does.
 proc parse*(T: typedesc[FaeVerConstraint], s: string): T =
   if s.strip(chars={' '}).len == 0:
-    raise newException(ValueError, "Malformed constraint string: " & s)
+    raise ValueError.newException("Malformed constraint string: " & s)
 
   let constraints = block:
     var constrs: seq[tuple[op: FaeVerOp, ver: FaeVer]]
 
-    for constr in s.split(','):
+    for constr in s.split(',').mapIt(it.strip(chars={' '})):
       let (op, opLen) = block:
         var opStr = newStringOfCap(2)
 
-        if s[0] in ['~', '^']: opStr &= s[0]
-        elif s[0] in ['=', '<', '>']:
-          opStr &= $s[0]
-          if s[1] == '=': opStr &= $s[1]
-          elif s[0] == '=': raise newException(ValueError,
-            "Malformed constraint string: " & s)
+        if constr[0] in ['~', '^']: opStr &= constr[0]
+        elif constr[0] in ['=', '<', '>']:
+          opStr &= $constr[0]
+          if constr[1] == '=': opStr &= $constr[1]
+          elif not constr[1].isDigit:
+            raise newException(ValueError, "Malformed constraint string: " & constr)
         else:
-          raise newException(ValueError, "Malformed constraint string: " & s)
+          raise newException(ValueError, "Malformed constraint string: " & constr)
 
         (parseEnum(opStr, voCaret), opStr.len)
 
@@ -248,7 +248,8 @@ proc parse*(T: typedesc[FaeVerConstraint], s: string): T =
       res.add:
         case constr.op:
         of voEq: FaeVerConstraint(lo: constr.ver, hi: constr.ver)
-        of voLt: FaeVerConstraint(
+        of voLt:
+          FaeVerConstraint(
           lo: FaeVer.neg, hi: constr.ver, excl: @[constr.ver])
         #of voGt: FaeVerConstraint(
         #  lo: constr.ver, hi: FaeVer.high, excl: @[constr.ver])

@@ -45,3 +45,5 @@ block:
     c = fvc"==1.2.3,==2.3.4"
   assert c == FaeVerConstraint(lo: vh, hi: vl, excl: @[])
   assert not c.isSatisfiable
+
+proc neg(T: typedesc[FaeVer]): FaeVer = T(major: -1, minor: -1, patch: -1)
