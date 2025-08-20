@@ -13,6 +13,8 @@ type
     id*: string
     # The constraint the dependency has been narrowed to, so far
     constraint*: FaeVerConstraint
+    # If this has changed since last resolution
+    changed*: bool
 
   DependencyRelation* = object
     id*: string
@@ -33,23 +35,14 @@ type
     tbl*: Table[string, seq[DependencyRelation]]
 
 
-  Engine = object
-    graph*: DependencyGraph
-    queue*: seq[Event]
-
-  EventKind* = enum
-    eInvalid, eResolve, eFetch, eProcess, eComplete
-
-  Event* = object
-    case kind*: EventKind
-    of eInvalid, eResolve, eComplete: discard
-    of eFetch: toFetch*: seq[WorkingDependency]
-    of eProcess: toProcess*: seq[ManifestV0]
-
-
-proc initGraph*(deps: seq[WorkingDependency]): DependencyGraph =
+proc newGraph*(deps = newSeq[string]()): DependencyGraph =
   result = DependencyGraph()
-  for dep in deps: result.deps[dep.id] = dep
+  for dep in deps: result.deps[dep] = WorkingDependency(id: dep)
+
+
+proc add*(g: DependencyGraph, id: string) {.inline.} =
+  if id in g.deps: return
+  g.deps[id] = WorkingDependency(id: id, changed: true)
 
 
 proc link*(
@@ -63,8 +56,6 @@ proc link*(
 
 proc resolve*(
   g: DependencyGraph
-# The existence of this type should be sufficient proof to be used as evidence
-# that I deserve a death sentence...
 ): ConflictTable =
   var
     toMerge: Table[string, seq[ConflictSource]]
@@ -103,13 +94,13 @@ proc resolve*(
         resolved[id] = dep.rel
         continue
 
-      let newConstr = merge(resolved[id].constraint, dep.r.constraint)
+      let newConstr = merge(resolved[id].constraint, dep.rel.constraint)
 
       if not newConstr.isSatisfiable:
         if id notin result:
           result[id] = DependencyConflict(
             constraintToSatisfy: resolved[id].constraint, sources: @[])
-        result[id].sources.add ConflictSource(dependent: dep.src, rel: dep.r)
+        result[id].sources.add dep
         continue
 
       resolved[id].constraint = newConstr
@@ -117,7 +108,9 @@ proc resolve*(
 
   for id, rel in resolved:
     if id notin g.deps: raise KeyError.newException("Unknown dependency: " & id)
+    if g.deps[id].constraint == rel.constraint: continue
     g.deps[id].constraint = rel.constraint
+    g.deps[id].changed = true
 
 
 proc collectReachable*(g: DependencyGraph): seq[WorkingDependency] =
@@ -138,13 +131,5 @@ proc collectReachable*(g: DependencyGraph): seq[WorkingDependency] =
     if id == "root": continue
     if id in g.deps:
       result.add g.deps[id]
-
-
-iterator next*(e: var Engine): Event =
-  while e.queue.len > 0:
-    let ev = e.queue.pop
-
-    if ev.kind == eResolve:
-      e.graph.resolve()
-
-  yield Event(kind: eComplete)
+      # reset it so we can detect changes
+      g.deps[id].changed = false

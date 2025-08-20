@@ -230,8 +230,6 @@ proc parse*(T: typedesc[FaeVerConstraint], s: string): T =
           if constr[1] == '=': opStr &= $constr[1]
           elif not constr[1].isDigit:
             raise newException(ValueError, "Malformed constraint string: " & constr)
-        else:
-          raise newException(ValueError, "Malformed constraint string: " & constr)
 
         (parseEnum(opStr, voCaret), opStr.len)
 

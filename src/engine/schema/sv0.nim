@@ -1,6 +1,7 @@
 import std/[
   options,
-  tables
+  tables,
+  uri
 ]
 
 import parsetoml
@@ -13,7 +14,6 @@ type
     format*: Natural
     package*: PackageV0
     forges*: Table[string, ForgeV0]
-    sourcesets*: Table[string, SourceSetV0]
     dependencies*: seq[DependencyV0]
     # Need to figure out how to do features
     #features*: seq[FeatureV0]
@@ -30,15 +30,11 @@ type
     # same story with the protocol field.
     config*: TomlTable
 
-  SourceSetV0* = object
-    srcDir* {.rename: "src-dir".}: string # Required
-    dependencies: seq[DependencyV0]
-
   DependencyV0* = object
-    src*: string # Required
-    version*: Option[FaeVer] # 'Optional' but in most scenarios, required
+    src*: Uri # Required
+    # Use a better name pls
+    constr* {.rename: "version".}: FaeVerConstraint # required
     refr*: Option[string]
-    sourcesets* {.optional: @["main"].}: seq[string]
 
 
 proc fromTomlImpl*(

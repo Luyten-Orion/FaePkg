@@ -1,6 +1,6 @@
 {
     "nim.project": [
-        "cli/main.nim",
+        "src/cli/main.nim",
     ],
     "nim.useNimsuggestCheck": false,
     "nim.provider": "nimsuggest"

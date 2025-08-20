@@ -16,48 +16,14 @@ tags = ["nimskull", "package-manager", "cli"]
 [forges.gh]
 origin = "git"
 host   = "github.com"
-
-# the `main` sourceset is implicitly under the `fae` namespace, other sourcesets
-# declared by users, such as `engine` in Fae, would be located
-# under `fae/engine`
-[sourcesets.engine]
-# TODO: Maybe this should be `src-dirs` and accept a list? Personally dislike
-# idea though. Maybe `res-dir` should be a thing too? Though, not sure how we'd
-# expose that to the sourceset code, maybe through a specific API? It'd probably
-# be better if we just force the developer to figure it out tbh, especially
-# since unlike Java, Skull doesn't have the concept of resources :p
-src-dir = "engine"
-
-[sourcesets.cli]
-src-dir = "cli"
-# Entries of `dependencies` in a sourceset definition must be a table.
-# sourcesets inherit the `default-sourcesets` as dependencies by default.
-
-# `fae` is a reserved scheme that refers to the current manifest.
-# you can't import a specific version of a sourceset within your own package,
-# but this functionality probably wouldn't be too hard? Will look into it in the
-# future
-dependencies = [{src = "fae:engine"}]
-
-[sourcesets.test]
-src-dir = "tests"
+protocol = "https"
 
 [[dependencies]]
-src        = "gh:NimParsers/parsetoml"
-# By default, it'll include all sourcesets besides `test`, but you can specify
-# which ones the project requires, if you only require a few components rather
-# than the entire package. Packages can also declare the sourcesets that can be
-# included by default via `package.default-sourcesets`. Will move it to a
-# different section for sure, just not sure where yet.
-sourcesets = ["main"]
+src        = "gh:nimparsers/parsetoml"
 version    = "0.7.2"
 
-[[dependencies]]
-src     = "gh:disruptek/gittyup"
-version = "3.2.2"
-
-[[dependencies]]
-src     = "gh:disruptek/gram"
-version = "0.4.1"
+#[[dependencies]]
+#src     = "gh:disruptek/gittyup"
+#version = "3.2.2"
 
 # TODO: Features section

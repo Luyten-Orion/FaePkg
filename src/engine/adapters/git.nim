@@ -33,7 +33,9 @@ proc gitExec(
     outp &= prc.outputStream.readAll()
     if not prc.running: break
 
-  return (prc.exitStatus.int, outp)
+  result = (prc.exitStatus.int, outp)
+
+  prc.close()
 
 
 proc gitCloneImpl*(ctx: OriginContext, url: string): bool =
@@ -59,3 +61,11 @@ proc gitResolveImpl*(ctx: OriginContext, refr: string): Option[string] =
 proc gitCheckoutImpl*(ctx: OriginContext, refr: string): bool =
   # returns true on success
   gitExec(ctx.targetDir, ["checkout", refr]).code == 0
+
+
+origins["git"] = OriginAdapter(
+  cloneImpl: gitCloneImpl,
+  fetchImpl: gitFetchImpl,
+  resolveImpl: gitResolveImpl,
+  checkoutImpl: gitCheckoutImpl
+)

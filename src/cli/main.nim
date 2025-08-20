@@ -1,3 +1,4 @@
+when not isMainModule: {.error: "You should never import this file, bug off!".}
 # TODO: Fae's commandline interface
 
 import std/[
@@ -8,17 +9,17 @@ import experimental/cmdline
 
 import parsetoml
 
-import engine/[
+import ../engine/[
   faever,
   schema,
   lock,
   resolution
 ]
-import engine/adapters/[
+import ../engine/adapters/[
   common,
   git
 ]
-import engine/private/tomlhelpers
+import ../engine/private/tomlhelpers
 
 
 import "."/[
@@ -58,10 +59,13 @@ let grabCmd = cli.commandBuilder()
   .addTo(cli, RootCommand)
 
 
-when not isMainModule:
-  {.error: "You should never import this file, bug off!".}
-
-
 var args = cli.run(commandLineParams(), defaults=FaeArgs(
   projPath: getCurrentDir())
 )
+
+
+case args.kind
+  of fkNone:
+    echo cli.help(RootCommand)
+  of fkGrab:
+    grabCmd(args)
