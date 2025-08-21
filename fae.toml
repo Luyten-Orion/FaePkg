@@ -1,7 +1,6 @@
 format = 0
 
 [package]
-origin             = "git"
 authors            = ["Luyten Orion"]
 description        = "A new package manager for Skull!"
 # SPDX identifier
@@ -13,16 +12,12 @@ homepage           = "https://github.com/Luyten-Orion/FaePkg"
 [package.ext]
 tags = ["nimskull", "package-manager", "cli"]
 
-[forges.gh]
-origin = "git"
-host   = "github.com"
-protocol = "https"
-
-[[dependencies]]
+[dependencies.parsetoml]
 src        = "gh:nimparsers/parsetoml"
 version    = "0.7.2"
+nimble     = true
 
-#[[dependencies]]
+#[dependencies.gittyup]
 #src     = "gh:disruptek/gittyup"
 #version = "3.2.2"
 

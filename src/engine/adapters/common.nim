@@ -9,7 +9,6 @@ import ../schema
 
 type
   OriginContext* = object
-    config*: TomlTable
     targetDir*: string
 
   # TODO: Maybe a context object would be useful...

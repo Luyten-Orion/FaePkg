@@ -68,11 +68,15 @@ proc resolve*(
 
     visited.incl id
 
-    if id notin g.tbl: continue
-    for dep in g.tbl[id]:
-      if dep.id notin g.deps: return
-      if dep.id notin visited: stack.add dep.id
-      toMerge.mgetOrPut(dep.id, @[]).add ConflictSource(dependent: id, rel: dep)
+    for depId, dependents in g.tbl:
+      for rel in dependents:
+        if rel.id == id:
+          if depId notin g.deps:
+            raise KeyError.newException("Unknown dependency: " & depId)
+          if depId notin visited:
+            stack.add depId
+          toMerge.mgetOrPut(depId, @[]).add:
+            ConflictSource(dependent: id, rel: rel)
 
 
   var resolved: Table[string, DependencyRelation]
@@ -115,21 +119,20 @@ proc resolve*(
 
 proc collectReachable*(g: DependencyGraph): seq[WorkingDependency] =
   var
-    visited: HashSet[string]
     stack = @["root"]
+    visited: HashSet[string]
 
   while stack.len > 0:
-    let id = stack.pop()
-    if id in visited: continue
-    visited.incl id
+    let depId = stack.pop()
 
-    if id notin g.tbl: continue
-    for dep in g.tbl[id]:
-      stack.add dep.id
+    if depId notin visited:
+      visited.incl depId
 
-  for id in visited:
-    if id == "root": continue
-    if id in g.deps:
-      result.add g.deps[id]
-      # reset it so we can detect changes
-      g.deps[id].changed = false
+      if depId != "root" and depId in g.deps:
+        result.add g.deps[depId]
+
+      # find all dependencies that `depId` depends on
+      for d, dependents in g.tbl:
+        for rel in dependents:
+          if rel.id == depId:
+            stack.add d
