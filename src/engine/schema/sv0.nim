@@ -11,8 +11,11 @@ import ../faever
 import ../private/tomlhelpers
 
 type
-  ForgeExpansion* = object
+  ForgeExpansion = object
     origin*, scheme*, host*: string
+
+  PkgMngrKind* = enum
+    pmNimble = "nimble"
 
   ManifestV0* = object
     format*: Natural
@@ -22,7 +25,6 @@ type
     #features*: seq[FeatureV0]
 
   PackageV0* = object
-    authors*: seq[string] # Optional
     description*, license*, documentation*, source*, homepage*: Option[string]
     ext*: TomlValue # Optional metadata
 
@@ -33,7 +35,7 @@ type
     # Use a better name pls
     constr* {.rename: "version".}: FaeVerConstraint # required
     refr*: Option[string]
-    isNimble* {.rename: "nimble", optional: false.}: bool
+    foreignPkgMngr* {.rename: "foreign-pm".}: Option[PkgMngrKind]
 
 
 const
@@ -72,5 +74,6 @@ proc fromTomlImpl*(
     if parts.len == 1:
       quit("Dependency has no origin: " & $res.src, 1)
 
-    res.origin = parts.pop()
+    res.origin = parts[0]
+    parts.delete 0
     res.src.scheme = parts.join("+")

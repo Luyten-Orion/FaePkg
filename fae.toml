@@ -1,13 +1,12 @@
 format = 0
 
 [package]
-authors            = ["Luyten Orion"]
-description        = "A new package manager for Skull!"
+description   = "A new package manager for Skull!"
 # SPDX identifier
-license            = "MIT"
-#documentation      = "https://your.docs.url/here"
-source             = "https://github.com/Luyten-Orion/FaePkg"
-homepage           = "https://github.com/Luyten-Orion/FaePkg"
+license       = "MIT"
+#documentation = "https://your.docs.url/here"
+source        = "https://github.com/Luyten-Orion/FaePkg"
+homepage      = "https://github.com/Luyten-Orion/FaePkg"
 
 [package.ext]
 tags = ["nimskull", "package-manager", "cli"]
@@ -15,7 +14,7 @@ tags = ["nimskull", "package-manager", "cli"]
 [dependencies.parsetoml]
 src        = "gh:nimparsers/parsetoml"
 version    = "0.7.2"
-nimble     = true
+foreign-pm = "nimble"
 
 #[dependencies.gittyup]
 #src     = "gh:disruptek/gittyup"
