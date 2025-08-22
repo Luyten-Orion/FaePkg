@@ -1,0 +1,23 @@
+format = 0
+
+# All information not directly needed for the PM goes here, we don't have
+# a registry, nor do we plan on one, so any extra data is simply another burden.
+#[metadata]
+#description   = "A new package manager for Skull!"
+# SPDX identifier
+#license       = "MIT"
+#documentation = "https://your.docs.url/here"
+#source        = "https://github.com/Luyten-Orion/FaePkg"
+#homepage      = "https://github.com/Luyten-Orion/FaePkg"
+#tags = ["nimskull", "package-manager", "cli"]
+
+[dependencies.parsetoml]
+src        = "gh:nimparsers/parsetoml"
+version    = "0.7.2"
+foreign-pm = "nimble"
+
+#[dependencies.gittyup]
+#src     = "gh:disruptek/gittyup"
+#version = "3.2.2"
+
+# TODO: Features section

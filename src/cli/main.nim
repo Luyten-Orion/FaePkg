@@ -27,10 +27,6 @@ import "."/[
 ]
 
 
-let
-  manifest = ManifestV0.fromToml(parseFile("fae.toml"))
-
-
 var cli = FaeArgs.commandBuilder()
   .name("fae")
   .describe("An elegant package manager for Nimskull!")

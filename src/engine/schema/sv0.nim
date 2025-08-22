@@ -19,14 +19,10 @@ type
 
   ManifestV0* = object
     format*: Natural
-    package*: PackageV0
+    metadata*: TomlTable
     dependencies*: Table[string, DependencyV0]
     # Need to figure out how to do features
     #features*: seq[FeatureV0]
-
-  PackageV0* = object
-    description*, license*, documentation*, source*, homepage*: Option[string]
-    ext*: TomlValue # Optional metadata
 
   DependencyV0* = object
     src*: Uri # Required
