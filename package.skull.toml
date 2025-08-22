@@ -2,7 +2,7 @@ format = 0
 
 # All information not directly needed for the PM goes here, we don't have
 # a registry, nor do we plan on one, so any extra data is simply another burden.
-#[metadata]
+#[metadatab]
 #description   = "A new package manager for Skull!"
 # SPDX identifier
 #license       = "MIT"

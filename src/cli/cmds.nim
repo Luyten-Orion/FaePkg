@@ -124,7 +124,7 @@ proc grabCmd*(args: FaeArgs) =
     quit("Not a valid directory!", 1)
 
   # Just initial set up
-  packages["root"] = args.parseManifest(args.projPath / "skullproj.toml")
+  packages["root"] = args.parseManifest(args.projPath / "package.skull.toml")
 
   for dep in packages["root"].dependencies.values:
     pkgMap.registerDep(g, "root", packages["root"], dep)
@@ -175,7 +175,7 @@ proc grabCmd*(args: FaeArgs) =
         quit("Failed to checkout version $1 of $2" % [vtag, dep.id], 1)
 
       if dirExists(args.projPath / ".fae" / "deps" / dep.id):
-        let manifest = args.parseManifest(ctx.targetDir / "skullproj.toml")
+        let manifest = args.parseManifest(ctx.targetDir / "package.skull.toml")
         packages[dep.id] = manifest
 
         for mdep in manifest.dependencies.values:
