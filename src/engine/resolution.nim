@@ -55,13 +55,14 @@ proc link*(
 
 
 proc resolve*(
-  g: DependencyGraph
+  g: DependencyGraph,
+  root: string
 ): ConflictTable =
   var
     toMerge: Table[string, seq[ConflictSource]]
     visited: HashSet[string]
     # `root` is the project dir or workspace that Fae is executed from
-    stack = @["root"]
+    stack = @[root]
 
   while stack.len > 0:
     let id = stack.pop()
@@ -83,7 +84,7 @@ proc resolve*(
 
 
   for id, deps in toMerge:
-    let rootDep = deps.filterIt(it.dependent == "root")
+    let rootDep = deps.filterIt(it.dependent == root)
 
     block mergeConstraints:
       if rootDep.len != 1: break mergeConstraints
@@ -92,7 +93,7 @@ proc resolve*(
       assert resolved[id].constraint.isSatisfiable, $resolved[id]
 
     for dep in deps:
-      if dep.dependent == "root": continue
+      if dep.dependent == root: continue
 
       if not resolved.hasKey(id):
         resolved[id] = dep.rel
@@ -117,9 +118,12 @@ proc resolve*(
     g.deps[id].changed = true
 
 
-proc collectReachable*(g: DependencyGraph): seq[WorkingDependency] =
+proc collectReachable*(
+  g: DependencyGraph,
+  root: string
+): seq[WorkingDependency] =
   var
-    stack = @["root"]
+    stack = @[root]
     visited: HashSet[string]
 
   while stack.len > 0:
@@ -128,7 +132,7 @@ proc collectReachable*(g: DependencyGraph): seq[WorkingDependency] =
     if depId notin visited:
       visited.incl depId
 
-      if depId != "root" and depId in g.deps:
+      if depId != root and depId in g.deps:
         result.add g.deps[depId]
 
       # find all dependencies that `depId` depends on

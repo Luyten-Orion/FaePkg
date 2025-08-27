@@ -1,8 +1,12 @@
 format = 0
 
+[package]
+# Must be the URI (without the scheme) of the package.
+name = "github.com/luyten-orion/faepkg"
+
 # All information not directly needed for the PM goes here, we don't have
 # a registry, nor do we plan on one, so any extra data is simply another burden.
-#[metadatab]
+#[metadata]
 #description   = "A new package manager for Skull!"
 # SPDX identifier
 #license       = "MIT"
@@ -12,7 +16,10 @@ format = 0
 #tags = ["nimskull", "package-manager", "cli"]
 
 [dependencies.parsetoml]
-src        = "gh:nimparsers/parsetoml"
+src        = "github.com/nimparsers/parsetoml"
+origin     = "git"
+scheme     = "https"
+#subdir     = "path/to/pkg/in/repo"
 version    = "0.7.2"
 foreign-pm = "nimble"
 
