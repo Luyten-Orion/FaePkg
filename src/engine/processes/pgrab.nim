@@ -78,8 +78,7 @@ proc grab*(projPath: string) =
       # to disk for a single dependency...
       if pkg.diskLoc == "":
         pkg.diskLoc = (projPath / ".skull" / "packages" / pkg.getFolderName)
-
-      ensureDirExists(pkg.diskLoc)
+        ensureDirExists(pkg.diskLoc)
 
       let
         adapter = origins[pkg.origin]
@@ -100,7 +99,7 @@ proc grab*(projPath: string) =
       if dirExists(ctx.targetDir):
         let manifest = parseManifest:
           [ctx.targetDir, pkg.subdir, "package.skull.toml"]
-            .filter(isEmptyOrWhitespace)
+            .filterIt(not it.isEmptyOrWhitespace)
             .join($DirSep)
 
         packages[dep.id] = manifest

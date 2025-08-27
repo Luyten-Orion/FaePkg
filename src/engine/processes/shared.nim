@@ -69,10 +69,10 @@ proc getFolderName*(src: PackageData): string =
     result.add(DirSep)
 
 
-proc ensureDirExists*(dir: string, sep = DirSep) =
-  var currDir = ""
+proc ensureDirExists*(dir: string, sep = DirSep, currDir = ".") =
+  var currDir = currDir
 
-  for p in dir.split(sep):
+  for p in dir.relativePath(currDir).split(sep):
     currDir = currDir / p
     if not dirExists(currDir):
       createDir(currDir)
@@ -102,7 +102,8 @@ proc parseManifest*(f: string): ManifestV0 =
   try:
     res = ManifestV0.fromToml(parseFile(file))
   except IOError:
-    quit("No fae.toml found in `" & file.parentDir & "`, not a Fae project!", 1)
+    quit("No fae.toml found in `" & file.parentDir.relativePath(".") &
+      "`, not a Fae project!", 1)
   except TomlError as e:
     quit("Failed to parse the package manifest: " & e.msg, 1)
   res
