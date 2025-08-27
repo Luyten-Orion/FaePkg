@@ -1,3 +1,5 @@
+import experimental/results
+
 import std/[
   sequtils,
   tables,
@@ -13,8 +15,6 @@ type
     id*: string
     # The constraint the dependency has been narrowed to, so far
     constraint*: FaeVerConstraint
-    # If this has changed since last resolution
-    changed*: bool
 
   DependencyRelation* = object
     id*: string
@@ -29,6 +29,7 @@ type
     sources*: seq[ConflictSource]
 
   ConflictTable* = Table[string, DependencyConflict]
+  ResolveResult* = Result[void, ConflictTable]
 
   DependencyGraph* = ref object
     deps*: Table[string, WorkingDependency]
@@ -42,7 +43,7 @@ proc newGraph*(deps = newSeq[string]()): DependencyGraph =
 
 proc add*(g: DependencyGraph, id: string) {.inline.} =
   if id in g.deps: return
-  g.deps[id] = WorkingDependency(id: id, changed: true)
+  g.deps[id] = WorkingDependency(id: id)
 
 
 proc link*(
@@ -54,10 +55,17 @@ proc link*(
     DependencyRelation(id: fromId, constraint: constr)
 
 
+proc unlinkAll*(
+  g: DependencyGraph,
+  id: string
+) {.inline.} =
+  g.tbl.del(id)
+
+
 proc resolve*(
   g: DependencyGraph,
   root: string
-): ConflictTable =
+): ResolveResult =
   var
     toMerge: Table[string, seq[ConflictSource]]
     visited: HashSet[string]
@@ -80,8 +88,9 @@ proc resolve*(
             ConflictSource(dependent: id, rel: rel)
 
 
-  var resolved: Table[string, DependencyRelation]
-
+  var
+    resolved: Table[string, DependencyRelation]
+    conflicts: ConflictTable
 
   for id, deps in toMerge:
     let rootDep = deps.filterIt(it.dependent == root)
@@ -102,41 +111,19 @@ proc resolve*(
       let newConstr = merge(resolved[id].constraint, dep.rel.constraint)
 
       if not newConstr.isSatisfiable:
-        if id notin result:
-          result[id] = DependencyConflict(
+        if id notin conflicts:
+          conflicts[id] = DependencyConflict(
             constraintToSatisfy: resolved[id].constraint, sources: @[])
-        result[id].sources.add dep
+        conflicts[id].sources.add dep
         continue
 
       resolved[id].constraint = newConstr
 
+  if conflicts.len > 0: return ResolveResult.err(conflicts)
 
   for id, rel in resolved:
     if id notin g.deps: raise KeyError.newException("Unknown dependency: " & id)
     if g.deps[id].constraint == rel.constraint: continue
     g.deps[id].constraint = rel.constraint
-    g.deps[id].changed = true
 
-
-proc collectReachable*(
-  g: DependencyGraph,
-  root: string
-): seq[WorkingDependency] =
-  var
-    stack = @[root]
-    visited: HashSet[string]
-
-  while stack.len > 0:
-    let depId = stack.pop()
-
-    if depId notin visited:
-      visited.incl depId
-
-      if depId != root and depId in g.deps:
-        result.add g.deps[depId]
-
-      # find all dependencies that `depId` depends on
-      for d, dependents in g.tbl:
-        for rel in dependents:
-          if rel.id == depId:
-            stack.add d
+  ResolveResult.ok()

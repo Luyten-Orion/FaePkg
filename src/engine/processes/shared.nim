@@ -82,7 +82,6 @@ proc registerDep*(
   pkgMap: var Table[string, PackageData],
   g: DependencyGraph,
   fromId: string,
-  manifest: ManifestV0,
   pkgData: PackageData,
   constr: FaeVerConstraint
 ) =
@@ -96,13 +95,13 @@ proc registerDep*(
     quit &"Failed to register dependency, invalid constraint {constr}: " & id, 1
 
 
-proc parseManifest*(f: string): ManifestV0 =
+proc parseManifest*(f: string, dir = "."): ManifestV0 =
   var res: ManifestV0
   let file = f
   try:
     res = ManifestV0.fromToml(parseFile(file))
   except IOError:
-    quit("No fae.toml found in `" & file.parentDir.relativePath(".") &
+    quit("No package.skull.toml found in `" & file.parentDir.relativePath(dir) &
       "`, not a Fae project!", 1)
   except TomlError as e:
     quit("Failed to parse the package manifest: " & e.msg, 1)

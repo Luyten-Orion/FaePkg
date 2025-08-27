@@ -1,7 +1,9 @@
+import experimental/results
 import std/[
   sequtils,
   strutils,
   tables,
+  sets,
   uri,
   os
 ]
@@ -21,8 +23,8 @@ proc grab*(projPath: string) =
   var 
     packages: Table[string, ManifestV0]
     pkgMap: Table[string, PackageData]
+    changeStack: seq[string]
     g = newGraph()
-    changed = true
 
   if not dirExists(projPath):
     quit("Not a valid directory!", 1)
@@ -32,7 +34,7 @@ proc grab*(projPath: string) =
 
   # Set up root package
   let root = block:
-    let m = parseManifest(projPath / "package.skull.toml")
+    let m = parseManifest(projPath / "package.skull.toml", projPath)
     pkgMap[m.package.name] = m.toPkgData
     pkgMap[m.package.name].diskLoc = projPath
     packages[m.package.name] = m
@@ -40,71 +42,66 @@ proc grab*(projPath: string) =
 
     for dep in m.dependencies.values:
       let pkgData = dep.toPkgData
-      pkgMap.registerDep(g, m.package.name, m, pkgData, dep.constr)
+      pkgMap.registerDep(g, m.package.name, pkgData, dep.constr)
 
     m.package.name
 
+  changeStack.add root
 
-  while changed:
-    changed = false
+  while changeStack.len > 0:
+    let res = g.resolve(root)
 
-    let conflicts =
-      try: g.resolve(root)
-      except KeyError as e: quit("Graph resolution failed: " & e.msg, 1)
+    if res.isErr:
+      quit("Dependency resolution failed with conflicts!\n" & $res.error, 1)
 
-    if conflicts.len > 0:
-      quit("Dependency resolution failed with conflicts!\n" & $conflicts, 1)
+    let depId = changeStack.pop()
 
-    let reachable = g.collectReachable(root)
+    if depId notin pkgMap:
+      quit("Missing source info for dependency: " & depId, 1)
 
-    for x in reachable:
-      if changed: break
-      changed = x.changed
+    template pkg: var PackageData = pkgMap[depId]
 
-    for dep in reachable:
-      if dep.id notin pkgMap:
-        quit("Missing source info for dependency: " & dep.id, 1)
-
-      template pkg: var PackageData = pkgMap[dep.id]
-
-      # TODO: We only need to do this once per dependency, since
-      # the source doesn't change mid-resolution
+    if depId != root:
+      # TODO: Move this check out of the loop, only needs to be done once
       if pkg.origin.len == 0:
-        quit("Dependency `" & dep.id & "` has no origin", 1)
+        quit("Dependency `" & depId & "` has no origin", 1)
       if pkg.origin notin origins:
         quit("No adapter registered for origin `" & pkg.origin & "`", 1)
 
-      # TODO: Look into sparse checkouts, right now we clone an entire monorepo
-      # to disk for a single dependency...
       if pkg.diskLoc == "":
-        pkg.diskLoc = (projPath / ".skull" / "packages" / pkg.getFolderName)
+        pkg.diskLoc = projPath / ".skull" / "packages" / pkg.getFolderName
         ensureDirExists(pkg.diskLoc)
 
       let
         adapter = origins[pkg.origin]
         ctx = OriginContext(targetDir: pkg.diskLoc)
-        vtag = "v" & $dep.constraint.lo
 
-      # TODO: Don't hardcode git, since we plan to support other sources
       if not dirExists(ctx.targetDir / ".git"):
-        if not adapter.clone(ctx, $pkg.loc):
-          quit("Failed to fetch dependency from " & $pkg.loc, 1)
+        if not adapter.cloneImpl(ctx, $pkg.loc):
+          quit("Failed to clone dependency `" & depId & "`", 1)
 
-      if not adapter.fetch(ctx, $pkg.loc, vtag):
-        quit("Failed to fetch version $1 of $2" % [vtag, dep.id], 1)
+      let vstr = $g.deps[depId].constraint.lo
 
-      if not adapter.checkout(ctx, vtag):
-        quit("Failed to checkout version $1 of $2" % [vtag, dep.id], 1)
+      # We should prefer `v` prefixed versions, we have to support non-prefixed
+      # versions for nimble, but if I can move that behaviour out of this code,
+      # then it will be done
+      if not adapter.fetchImpl(ctx, $pkg.loc, "v" & vstr):
+        if not adapter.fetchImpl(ctx, $pkg.loc, vstr):
+          quit("Failed to fetch version $1 of $2" % [vstr, depId], 1)
 
-      if dirExists(ctx.targetDir):
-        let manifest = parseManifest:
-          [ctx.targetDir, pkg.subdir, "package.skull.toml"]
-            .filterIt(not it.isEmptyOrWhitespace)
-            .join($DirSep)
+      if not adapter.checkoutImpl(ctx, "v" & vstr):
+        if not adapter.checkoutImpl(ctx, vstr):
+          quit("Failed to checkout version $1 of $2" % [vstr, depId], 1)
 
-        packages[dep.id] = manifest
-        for mdep in manifest.dependencies.values:
-          pkgMap.registerDep(
-            g, dep.id, manifest,
-            pkgMap.mgetOrPut(mdep.toId, mdep.toPkgData()), mdep.constr
-          )
+    # TODO: Might not need the `packages` table tbh...
+    packages[depId] = parseManifest(
+      [pkg.diskLoc, pkg.subdir, "package.skull.toml"]
+        .filterIt(not it.isEmptyOrWhitespace)
+        .join($DirSep),
+      projPath
+    )
+
+    for dep in packages[depId].dependencies.values:
+      let pkgData = pkgMap.mgetOrPut(dep.toId, dep.toPkgData)
+      changeStack.add pkgData.id
+      pkgMap.registerDep(g, depId, pkgData, dep.constr)

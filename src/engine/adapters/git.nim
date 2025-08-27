@@ -43,6 +43,7 @@ proc gitCloneImpl*(ctx: OriginContext, url: string): bool =
   gitExec(ctx.targetDir.parentDir, ["clone", url]).code == 0
 
 
+# TODO: Handle this more elegantly
 proc gitFetchImpl*(ctx: OriginContext, url, refr: string): bool =
   # returns true on success
   gitExec(ctx.targetDir, ["fetch", url, refr]).code == 0
@@ -61,7 +62,6 @@ proc gitResolveImpl*(ctx: OriginContext, refr: string): Option[string] =
 proc gitCheckoutImpl*(ctx: OriginContext, refr: string): bool =
   # returns true on success
   gitExec(ctx.targetDir, ["checkout", refr]).code == 0
-
 
 origins["git"] = OriginAdapter(
   cloneImpl: gitCloneImpl,
