@@ -12,21 +12,14 @@ cleaner integration, right now the goal is to get a clean package manager
 ## To-Dos
 - [ ] Implement manifest parsing and validation
 - [ ] Implement origin adapters
-  - [ ] Implement `git` adapter
-  - [ ] Implement `path` adapter (relative to project root)
-  - [ ] Implement `local` hybrid adapter (for dependencies downloaded locally
-      but do have an origin somewhere else, this is likely going to be used
-      a lot in local development, when developing a library alongside an app)
-  - [ ] Implement `nimble` hybrid adapter, it will be much more limited than
-      fae-native packages, in terms of the features we can support, but we
-      could potentially fill that gap using pseudo-package declarations?
-      But honestly, it's probably not worth the effort to attempt 'clean'
-      interop.
-- [ ] Implement dependency resolution
-  - [ ] Gathering stage
-  - [ ] Resolution stage
-  - [ ] Download stage
+  - [x] Implement `git` adapter
+  - [ ] Maybe implement `hg` adapter
+- [x] Implement dependency resolution
+  - [x] Gathering stage
+  - [x] Resolution stage
+  - [x] Download stage
   - Repeat to completion.
+- [ ] Implement `foreign-pm = "nimble"` support.
 
 ### Potential To-Dos
 - [ ] Expose a public API. Not sure what it should consist of yet.

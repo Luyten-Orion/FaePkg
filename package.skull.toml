@@ -23,8 +23,4 @@ scheme     = "https"
 version    = "0.7.2"
 foreign-pm = "nimble"
 
-#[dependencies.gittyup]
-#src     = "gh:disruptek/gittyup"
-#version = "3.2.2"
-
 # TODO: Features section

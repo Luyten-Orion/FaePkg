@@ -1,9 +1,0 @@
-# This should NEVER get committed to your repository, this is potentially
-# sensitive data if you're working with private repos!
-# TODO: Write a format for this
-format = 0
-
-[dependencies."gh:nimparsers/parsetoml"]
-# This could point to an alternative source to be used, for example, like a
-# private fork of parsetoml, which needs your PAT to go through
-src = "gh:nimparsers/parsetoml"

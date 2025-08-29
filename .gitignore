@@ -1,3 +1,6 @@
-# A private file used for specifying auth schemes
-.fae-overrides.toml
+# Dependencies are checked out here
 .skull
+# This is where projects with custom buildscripts should store any data
+# so it'd be `.fae/pkg/<id>`. Information for other PMs also be stored here,
+# like `packages.json` from `github.com/nim-lang/packages`.
+.fae
