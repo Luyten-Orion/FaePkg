@@ -10,6 +10,7 @@ import std/[
 
 import parsetoml
 
+import ../foreign/nimble
 import ../[
   resolution,
   adapters,

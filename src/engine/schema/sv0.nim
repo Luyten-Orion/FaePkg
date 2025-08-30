@@ -17,6 +17,7 @@ type
   ManifestV0* = object
     format*: Natural
     package*: PackageV0
+    srcDir* {.rename: "foreign-src-dir".}: Option[string]
     metadata*: TomlTable
     dependencies*: Table[string, DependencyV0]
     # Need to figure out how to do features
@@ -27,9 +28,6 @@ type
 
   DependencyV0* = object
     src*: string # Required
-    # Subdir, not provided by users
-    # Scheme, this can be detected automatically but for unknown
-    # forges, this makes life better, since the `src` field acts as an ID
     scheme*: string
     # Dependency origin, whether it's from git or what
     origin*: string

@@ -13,7 +13,6 @@ import parsetoml
 import ./private/tomlhelpers
 
 type
-  # We mostly follow SemVer, we don't support arbitrary prereleases though.
   FaeVer* = object
     major*, minor*, patch*: int
     prerelease*, buildMetadata*: string

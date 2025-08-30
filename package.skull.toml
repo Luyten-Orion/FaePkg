@@ -21,6 +21,10 @@ origin     = "git"
 scheme     = "https"
 #subdir     = "path/to/pkg/in/repo"
 version    = "0.7.2"
+# NOTE: `nimble` support is half-baked, it uses a very crappy minimal parser
+# and should be replaced with either invoking the actual Skull parser or
+# invoking the VM (once it can be sandboxed) as a last resort for
+# non-declarative package manifests... Your manifest shouldn't be code though...
 foreign-pm = "nimble"
 
 # TODO: Features section

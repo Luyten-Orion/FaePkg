@@ -3,5 +3,8 @@
         "src/cli/main.nim",
     ],
     "nim.useNimsuggestCheck": false,
-    "nim.provider": "nimsuggest"
+    "nim.provider": "nimsuggest",
+    "[nim]": {
+        "editor.tabSize": 2
+    }
 }
