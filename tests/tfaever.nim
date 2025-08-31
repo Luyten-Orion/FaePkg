@@ -2,7 +2,7 @@ import std/options
 
 import experimental/results
 
-import engine/faever
+import src/engine/faever
 
 # Maybe add this to `fae/faever`?
 template fv(s: string): FaeVer = FaeVer.parse(s).unsafeGet
@@ -45,5 +45,3 @@ block:
     c = fvc"==1.2.3,==2.3.4"
   assert c == FaeVerConstraint(lo: vh, hi: vl, excl: @[])
   assert not c.isSatisfiable
-
-proc neg(T: typedesc[FaeVer]): FaeVer = T(major: -1, minor: -1, patch: -1)

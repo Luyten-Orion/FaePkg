@@ -1,4 +1,5 @@
 import std/[
+  parseutils,
   algorithm,
   strscans,
   strutils,
@@ -40,7 +41,7 @@ type
 
   FaeVerParseResult* = Result[FaeVer, FaeVerParseError]
 
-proc neg(T: typedesc[FaeVer]): FaeVer = T(major: -1, minor: -1, patch: -1)
+proc neg*(T: typedesc[FaeVer]): FaeVer = T(major: -1, minor: -1, patch: -1)
 proc low*(T: typedesc[FaeVer]): T = T(major: 0, minor: 0, patch: 0)
 proc high*(T: typedesc[FaeVer]): T =
   T(major: int.high, minor: int.high, patch: int.high)
@@ -138,60 +139,50 @@ proc satisfies*(v: FaeVer, c: FaeVerConstraint): bool =
   (v < c.hi and v > c.lo and v notin c.excl)
 
 
-proc parse*(T: typedesc[FaeVer], s: string): FaeVerParseResult =
+proc parse*(
+  T: typedesc[FaeVer],
+  s: string,
+  pos: var int
+): FaeVerParseResult =
+  ## `pos` is where the parser starts from, and it will be updated
+  ## if it succeeds
   var
     res: FaeVer
-    parts = s.split('.', 2)
+    idx = pos
+    maj, min, pch: uint = 0
 
-  if parts.len < 3: return FaeVerParseResult.err(peMalformedInput)
+  idx += parseUint(s, maj, idx)
+  if s[idx] != '.':
+    return FaeVerParseResult.err(peMalformedInput)
+  inc idx
 
-  template parseCmpnt(i: var int, n: string) =
-    try:
-      i = n.parseInt
-    except CatchableError:
-      return FaeVerParseResult.err(peMalformedInput)
+  idx += parseUint(s, min, idx)
+  if s[idx] != '.':
+    return FaeVerParseResult.err(peMalformedInput)
+  inc idx
 
-  parseCmpnt(res.major, parts[0])
-  parseCmpnt(res.minor, parts[1])
+  idx += parseUint(s, pch, idx)
+  (res.major, res.minor, res.patch) = (maj.int, min.int, pch.int)
 
-  for i in 0..<parts[2].len:
-    if parts[2][i] notin {'0'..'9'}:
-      parts.add parts[2][i..^1]
-      parts[2] = parts[2][0..<i]
-      break
+  const ValidIdentifiers = {'0'..'9', 'a'..'z', 'A'..'Z', '-', '.'}
 
-  parseCmpnt(res.patch, parts[2])
+  if idx >= s.len: return FaeVerParseResult.ok(res)
 
-  if parts.len < 4: return FaeVerParseResult.ok(res)
+  if s[idx] == '-':
+    inc idx
+    idx += parseWhile(s, res.prerelease, ValidIdentifiers, idx)
 
-  const ValidIdentifier = {'A'..'Z', 'a'..'z', '0'..'9', '-', '.'}
+  if idx >= s.len: return FaeVerParseResult.ok(res)
 
-  # TODO: Validate dot separated identifiers
-  if parts[3][0] == '-':
-    let subparts = parts[3][1..^1].split('+', 1)
+  if s[idx] == '+':
+    inc idx
+    idx += parseWhile(s, res.buildMetadata, ValidIdentifiers, idx)
 
-    if not allCharsInSet(subparts[0], ValidIdentifier):
-      return FaeVerParseResult.err(peMalformedPrerelease)
-    res.prerelease = subparts[0]
+  return FaeVerParseResult.ok(res)
 
-    if subparts.len == 2:
-      if not allCharsInSet(subparts[1], ValidIdentifier):
-        return FaeVerParseResult.err(peMalformedBuildMetadata)
-      res.buildMetadata = subparts[1]
 
-    FaeVerParseResult.ok(res)
-
-  elif parts[3][0] == '+':
-    let buildMetadata = parts[3][1..^1]
-
-    if not allCharsInSet(buildMetadata, ValidIdentifier):
-      return FaeVerParseResult.err(peMalformedBuildMetadata)
-    res.buildMetadata = buildMetadata
-
-    FaeVerParseResult.ok(res)
-
-  else:
-    FaeVerParseResult.err(peMalformedInput)
+proc parse*(T: typedesc[FaeVer], s: string): FaeVerParseResult =
+  parse(FaeVer, s, (var i = 0; i))
 
 
 proc merge*(a, b: FaeVerConstraint): FaeVerConstraint =

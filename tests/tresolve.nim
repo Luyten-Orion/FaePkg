@@ -1,6 +1,6 @@
 import std/[sequtils, tables, sets]
 
-import engine/[resolution, faever]
+import src/engine/[resolution, faever]
 
 
 proc initGraph*(deps: seq[string]): DependencyGraph =

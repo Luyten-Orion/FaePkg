@@ -10,7 +10,7 @@ This will definitely require some modifications to the compiler to allow for
 cleaner integration, right now the goal is to get a clean package manager
 
 ## To-Dos
-- [ ] Implement manifest parsing and validation
+- [x] Implement manifest parsing and validation
 - [ ] Implement origin adapters
   - [x] Implement `git` adapter
   - [ ] Maybe implement `hg` adapter
@@ -20,6 +20,8 @@ cleaner integration, right now the goal is to get a clean package manager
   - [x] Download stage
   - Repeat to completion.
 - [ ] Implement `foreign-pm = "nimble"` support.
+- [ ] Implement intermediary types when it comes to the resolution process,
+    what we currently have feels gross (using schema types directly).
 
 ### Potential To-Dos
 - [ ] Expose a public API. Not sure what it should consist of yet.
