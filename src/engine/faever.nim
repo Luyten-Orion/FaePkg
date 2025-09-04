@@ -36,8 +36,8 @@ type
     peMalformedInput = "Expected a version in MAJ.MIN.PATCH-PRE+BUILD!"
     peMissingPrerelease = "Trailing dash indicates prerelease, but none was found!"
     peMissingBuildMetadata = "Trailing plus indicates build metadata, but none was found!"
-    peMalformedPrerelease = "Prerelease component must be alphanumeric!"
-    peMalformedBuildMetadata = "Build metadata component must be alphanumeric!"
+    #peMalformedPrerelease = "Prerelease component must be alphanumeric!"
+    #peMalformedBuildMetadata = "Build metadata component must be alphanumeric!"
 
   FaeVerParseResult* = Result[FaeVer, FaeVerParseError]
 
@@ -166,18 +166,31 @@ proc parse*(
 
   const ValidIdentifiers = {'0'..'9', 'a'..'z', 'A'..'Z', '-', '.'}
 
-  if idx >= s.len: return FaeVerParseResult.ok(res)
+  if idx >= s.len:
+    pos = idx
+    return FaeVerParseResult.ok(res)
 
   if s[idx] == '-':
     inc idx
+    let tmpIdx = idx
     idx += parseWhile(s, res.prerelease, ValidIdentifiers, idx)
 
-  if idx >= s.len: return FaeVerParseResult.ok(res)
+    if idx == tmpIdx:
+      return FaeVerParseResult.err(peMissingPrerelease)
+
+  if idx >= s.len:
+    pos = idx
+    return FaeVerParseResult.ok(res)
 
   if s[idx] == '+':
     inc idx
+    let tmpIdx = idx
     idx += parseWhile(s, res.buildMetadata, ValidIdentifiers, idx)
 
+    if idx == tmpIdx:
+      return FaeVerParseResult.err(peMissingBuildMetadata)
+
+  pos = idx
   return FaeVerParseResult.ok(res)
 
 
