@@ -23,34 +23,20 @@ import ./shared
 
 # TODO: Add some sort of validation to ensure that a package we're grabbing
 # isn't imitating another thoughtlessly.
-proc grabPkg(
-  g: DependencyGraph,
+proc grab(
   pkg: PackageData,
-  depId: string,
+  ver: FaeVer
 ) =
   let
     adapter = origins[pkg.origin]
     ctx = OriginContext(targetDir: pkg.diskLoc)
 
-  if adapter.isVcs(ctx):
-    if not adapter.clone(ctx, $pkg.loc):
-      quit("Failed to clone dependency `" & depId & "`", 1)
-
-  let vstr = $g.deps[depId].constraint.lo
-
-  # We should prefer `v` prefixed versions, we have to support non-prefixed
-  # versions for nimble, but if I can move that behaviour out of this code,
-  # then it will be done
-  if not adapter.fetch(ctx, $pkg.loc, "v" & vstr):
-    if not adapter.fetch(ctx, $pkg.loc, vstr):
-      quit("Failed to fetch version $1 of $2" % [vstr, depId], 1)
-
-  if not adapter.checkout(ctx, "v" & vstr):
-    if not adapter.checkout(ctx, vstr):
-      quit("Failed to checkout version $1 of $2" % [vstr, depId], 1)
+  pkg.clone()
+  # TODO: Consider if `pkg.fetch` should be an operation?
+  pkg.checkout(ver)
 
 
-proc grab*(projPath: string) =
+proc grabR*(projPath: string) =
   var 
     packages: Table[string, ManifestV0]
     pkgMap: Table[string, PackageData]
@@ -103,18 +89,16 @@ proc grab*(projPath: string) =
         pkg.diskLoc = projPath / ".skull" / "packages" / pkg.getFolderName
         ensureDirExists(pkg.diskLoc)
 
-      g.grabPkg(pkg, depId)
+      pkg.grab(g.deps[depId].constraint.lo)
 
       if pkg.foreignPm.isSome and pkg.foreignPm.unsafeGet == pmNimble:
         initNimbleCompat(projPath)
         
-        discard
+        initManifestForNimblePkg(projPath, pkg)
 
     # TODO: Might not need the `packages` table tbh...
     packages[depId] = parseManifest(
-      [pkg.diskLoc, pkg.subdir, "package.skull.toml"]
-        .filterIt(not it.isEmptyOrWhitespace)
-        .join($DirSep),
+      pkg.fullLoc / "package.skull.toml",
       projPath
     )
 

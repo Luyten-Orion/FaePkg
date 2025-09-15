@@ -28,6 +28,12 @@ type
     foreignPm*: Option[PkgMngrKind]
 
 
+template fullLoc*(pkg: PackageData): string =
+  [pkg.diskLoc, pkg.subdir]
+    .filterIt(not it.isEmptyOrWhitespace)
+    .join($DirSep)
+
+
 # TODO: Figure out a way to gently enforce package IDs having the major version
 # suffixed.
 proc toId*(dep: DependencyV0): string =
@@ -154,6 +160,9 @@ proc checkout*(
 ) =
   let adapter = origins[pkg.origin]
 
+  # We should prefer `v` prefixed versions, we have to support non-prefixed
+  # versions for nimble, but if I can move that behaviour out of this code,
+  # then it will be done
   if not adapter.fetch(pkg.toOriginCtx, $pkg.loc, refr):
     quit("Failed to fetch package `" & pkg.id & "`", 1)
 

@@ -30,6 +30,9 @@ import ../[
 ]
 
 
+import parsetoml
+
+
 template collect(initer: typed, body: untyped): untyped =
   block:
     var it{.inject.} = initer
@@ -65,8 +68,8 @@ proc initNimbleCompat*(projPath: string) =
   # Should only be ran once per program instantiation anyway
   if packagesJsonUpToDate: return
 
-  discard existsOrCreateDir(projPath / ".fae")
-  let path = projPath / ".fae" / "nimblepkgs.json"
+  ensureDirExists(".skull" / "fae", currDir = projPath)
+  let path = projPath / ".skull" / "fae" / "nimblepkgs.json"
 
   let
     client = newHttpClient()
@@ -309,7 +312,7 @@ proc requireToDep*(s: string): tuple[name: string, decl: DependencyV0] =
 proc getNimblePkgName(
   pkg: PackageData
 ): string =
-  let nimbleManifests = toSeq(walkFiles(pkg.diskLoc / pkg.subdir / "*.nimble"))
+  let nimbleManifests = toSeq(walkFiles(pkg.fullLoc / "*.nimble"))
 
   if nimbleManifests.len < 1:
     quit("No nimble manifest found for package `" & pkg.id & "`", 1)
@@ -326,7 +329,7 @@ proc getNimbleExpandedNames*(
   names: openArray[string]
 ): Table[string, string] =
   let pkgDataStrm = try:
-      openFileStream(projPath / ".fae" / "nimblepkgs.json", fmRead)
+      openFileStream(projPath / ".skull" / "fae" / "nimblepkgs.json", fmRead)
     except IOError:
       quit("Failed to open `nimblepkgs.json` for Nimble compat!", 1)
 
@@ -402,18 +405,13 @@ proc getNimbleExpandedNames*(
   parser.close()
 
 
-
-
-
-
-
-proc initManifestFromNimblePkg*(
+proc initManifestForNimblePkg*(
   projPath: string,
   pkg: PackageData
 ) =
   let
     nimbleName = getNimblePkgName(pkg)
-    nbMan = parseNimble(pkg.diskLoc / pkg.subdir / nimbleName & ".nimble")
+    nbMan = parseNimble(pkg.fullLoc / nimbleName & ".nimble")
 
   var deps = nbMan.requiresData.map(requireToDep).toTable
 
@@ -439,10 +437,19 @@ proc initManifestFromNimblePkg*(
       deps[url] = unexpanded[name]
       fetchInfo(parseUri(url), deps[name])
 
+  var dependencies: Table[string, DependencyV0]
+
+  for name, dep in deps:
+    let pkgData = dep.toPkgData()
+    pkgData.clone()
+    dependencies[pkgData.getNimblePkgName()] = dep
 
 
   let m = ManifestV0(
     format: 0,
     package: PackageV0(name: nimbleName, srcDir: nbMan.srcDir),
-    #dependencies: 
+    dependencies: dependencies
   )
+
+  # TODO: Make TOML serialiser for our types
+  #writeFile(pkg.fullLoc / "package.skull.toml", $(?m))

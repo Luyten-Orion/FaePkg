@@ -15,4 +15,4 @@ type
 # TODO: We should also warn users if there are dependencies that seem identical
 # with different casing, since if that's the case, they *may* be the same...
 proc grabCmd*(args: FaeArgs) =
-  grab(args.projPath)
+  grabR(args.projPath)
