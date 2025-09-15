@@ -10,11 +10,12 @@ import std/[
   options,
   streams,
   tables,
+  sets,
   uri,
   os
 ]
 
-import std/sugar except collect
+#import std/sugar except collect
 
 import experimental/[
   results
@@ -320,7 +321,7 @@ proc getNimblePkgName(
   else: nimbleManifests[0].splitFile().name
 
 
-proc getNimbleExpandedNames(
+proc getNimbleExpandedNames*(
   projPath: string,
   names: openArray[string]
 ): Table[string, string] =
@@ -349,7 +350,7 @@ proc getNimbleExpandedNames(
       # TODO: Do some error reporting please....
       var
         skip = false
-        matchFound = false
+        pkgName: string
         pkgUrl: string
 
       while parser.kind() != jsonObjectEnd:
@@ -382,16 +383,17 @@ proc getNimbleExpandedNames(
           else:
             quit("Failed to parse `nimblepkgs.json` for Nimble compat!", 1)
 
+        parser.next()
         if key == "name":
           if parser.str() notin names:
             skip = true
             continue
-          matchFound = true
+          pkgName = parser.str()
         elif key == "url":
           pkgUrl = parser.str()
 
-        if matchFound and pkgUrl != "":
-          result[parser.str()] = pkgUrl
+        if pkgName != "" and pkgUrl != "":
+          result[pkgName] = pkgUrl
           skip = true
 
     else:
@@ -406,6 +408,7 @@ proc getNimbleExpandedNames(
 
 
 proc initManifestFromNimblePkg*(
+  projPath: string,
   pkg: PackageData
 ) =
   let
@@ -414,17 +417,27 @@ proc initManifestFromNimblePkg*(
 
   var deps = nbMan.requiresData.map(requireToDep).toTable
 
-  let unexpanded = block:
-    var res: Table[string, DependencyV0]
+  block:
+    var unexpanded: Table[string, DependencyV0]
 
     for name in toSeq(deps.keys):
       if "://" notin name:
-        res[name] = deps[name]
+        unexpanded[name] = deps[name]
         deps.del(name)
 
-    res
+    let expanded = getNimbleExpandedNames(projPath, toSeq(unexpanded.keys))
 
-  
+    template keysToHashSet[U](tbl: Table[string, U]): HashSet[string] =
+      toSeq(tbl.keys).toHashSet
+
+    let missing = unexpanded.keysToHashSet() - expanded.keysToHashSet()
+    if missing.len > 0: quit("Missing dependencies: " & $missing, 1)
+
+    for name, url in expanded:
+      deps[url] = unexpanded[name]
+      fetchInfo(parseUri(url), deps[name])
+
+
 
   let m = ManifestV0(
     format: 0,

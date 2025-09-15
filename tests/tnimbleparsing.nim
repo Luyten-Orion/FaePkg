@@ -5,9 +5,19 @@ import std/[
   os
 ]
 
+import experimental/results
+
 import src/engine/foreign/nimble
 import src/engine/faever
 
+
+let tmpDir = block:
+  let res = getTempDir()
+  assert res.dirExists(), "Can't proceed since there's no temp dir!"
+  discard existsOrCreateDir(res / "faepkg-test")
+  res / "faepkg-test"
+
+initNimbleCompat(tmpDir)
 
 block: # just test if it can grab the srcDir and the various requires
   let manifest = parseNimble("tests/tnimbleparsing/dummy.nimble")
@@ -24,11 +34,31 @@ block: # just test if it can grab the srcDir and the various requires
 
 
 block:
+  echo getNimbleExpandedNames(tmpDir, ["repo1", "repo2"])
+
+
+block:
+  #[ TODO: Check this
+requires "https://github.com/Luyten-Orion/FaeNimbleCompatA>1.0.0" # Allowed but lowerbound must be set elsewhere
+requires "repo2<1.0.0" # Allowed but lowerbound must be set elsewhere
+requires "repo1 >= 1.0.0" # Allowed
+requires "repo2 <= 1.0.0" # Allowed but lowerbound must be set elsewhere
+requires "repo1 == 1.0.0" # Allowed
+requires "repo2 >= 1.0.0 < 2.0.0" # Allowed
+requires "repo1 > 1.0.0 < 2.0.0" # Allowed but lowerbound must be set elsewhere
+  ]#
   let manifest = parseNimble("tests/tnimbleparsing/standard.nimble")
 
   var deps = manifest.requiresData
-    .map(requireToDep).toTable
+    .map(requireToDep)
 
-  for dep in deps.keys:
-    echo deps[dep]
+  template fv(s: string): FaeVer = FaeVer.parse(s).unsafeGet
 
+  assert deps[0].decl.constr == FaeVerConstraint(lo: fv"1.0.0",
+    hi: FaeVer.high, excl: @[fv"1.0.0"])
+  assert deps[1].decl.constr == FaeVerConstraint(lo: FaeVer.neg, hi: fv"1.0.0", excl: @[fv"1.0.0"])
+  assert deps[2].decl.constr == FaeVerConstraint(lo: fv"1.0.0", hi: FaeVer.high)
+  assert deps[3].decl.constr == FaeVerConstraint(lo: FaeVer.neg, hi: fv"1.0.0")
+  assert deps[4].decl.constr == FaeVerConstraint(lo: fv"1.0.0", hi: fv"1.0.0")
+  assert deps[5].decl.constr == FaeVerConstraint(lo: fv"1.0.0", hi: fv"2.0.0", excl: @[fv"2.0.0"])
+  assert deps[6].decl.constr == FaeVerConstraint(lo: fv"1.0.0", hi: fv"2.0.0", excl: @[fv"1.0.0", fv"2.0.0"])
