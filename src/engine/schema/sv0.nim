@@ -17,7 +17,6 @@ type
   ManifestV0* = object
     format*: Natural
     package*: PackageV0
-    srcDir* {.rename: "foreign-src-dir".}: Option[string]
     metadata*: TomlTable
     dependencies*: Table[string, DependencyV0]
     # Need to figure out how to do features
@@ -25,6 +24,8 @@ type
 
   PackageV0* = object
     name*: string
+    # Discouraged. Ideally use the `src` directory by default
+    srcDir* {.rename: "src-dir", optional: "src".}: string
 
   DependencyV0* = object
     src*: string # Required

@@ -27,9 +27,8 @@ block:
   let manifest = parseNimble("tests/tnimbleparsing/standard.nimble")
 
   var deps = manifest.requiresData
-    .map(requireToDep)
-    .mapIt((it.name, it.version)).toTable
+    .map(requireToDep).toTable
 
-  for dep in deps:
-    echo dep
+  for dep in deps.keys:
+    echo deps[dep]
 

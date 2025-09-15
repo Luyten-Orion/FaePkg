@@ -2,6 +2,7 @@ import std/[
   strformat,
   sequtils,
   strutils,
+  options,
   tables,
   uri,
   os
@@ -23,6 +24,7 @@ type
     loc*: Uri
     subdir*: string
     diskLoc*: string
+    foreignPm*: Option[PkgMngrKind]
 
 
 # TODO: Figure out a way to gently enforce package IDs having the major version
@@ -40,7 +42,8 @@ proc toPkgData*(dep: DependencyV0): PackageData =
     id: dep.toId,
     origin: dep.origin,
     loc: parseUri(&"{dep.scheme}://{dep.src}"),
-    subdir: dep.subdir
+    subdir: dep.subdir,
+    foreignPm: dep.foreignPkgMngr
   )
 
 

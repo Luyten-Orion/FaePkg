@@ -2,6 +2,7 @@ import experimental/results
 import std/[
   sequtils,
   strutils,
+  options,
   tables,
   sets,
   uri,
@@ -18,6 +19,33 @@ import ../[
   faever
 ]
 import ./shared
+
+
+proc grabPkg(
+  g: DependencyGraph,
+  pkg: PackageData,
+  depId: string,
+) =
+  let
+    adapter = origins[pkg.origin]
+    ctx = OriginContext(targetDir: pkg.diskLoc)
+
+  if not dirExists(ctx.targetDir / ".git"):
+    if not adapter.cloneImpl(ctx, $pkg.loc):
+      quit("Failed to clone dependency `" & depId & "`", 1)
+
+  let vstr = $g.deps[depId].constraint.lo
+
+  # We should prefer `v` prefixed versions, we have to support non-prefixed
+  # versions for nimble, but if I can move that behaviour out of this code,
+  # then it will be done
+  if not adapter.fetchImpl(ctx, $pkg.loc, "v" & vstr):
+    if not adapter.fetchImpl(ctx, $pkg.loc, vstr):
+      quit("Failed to fetch version $1 of $2" % [vstr, depId], 1)
+
+  if not adapter.checkoutImpl(ctx, "v" & vstr):
+    if not adapter.checkoutImpl(ctx, vstr):
+      quit("Failed to checkout version $1 of $2" % [vstr, depId], 1)
 
 
 proc grab*(projPath: string) =
@@ -73,26 +101,12 @@ proc grab*(projPath: string) =
         pkg.diskLoc = projPath / ".skull" / "packages" / pkg.getFolderName
         ensureDirExists(pkg.diskLoc)
 
-      let
-        adapter = origins[pkg.origin]
-        ctx = OriginContext(targetDir: pkg.diskLoc)
+      g.grabPkg(pkg, depId)
 
-      if not dirExists(ctx.targetDir / ".git"):
-        if not adapter.cloneImpl(ctx, $pkg.loc):
-          quit("Failed to clone dependency `" & depId & "`", 1)
-
-      let vstr = $g.deps[depId].constraint.lo
-
-      # We should prefer `v` prefixed versions, we have to support non-prefixed
-      # versions for nimble, but if I can move that behaviour out of this code,
-      # then it will be done
-      if not adapter.fetchImpl(ctx, $pkg.loc, "v" & vstr):
-        if not adapter.fetchImpl(ctx, $pkg.loc, vstr):
-          quit("Failed to fetch version $1 of $2" % [vstr, depId], 1)
-
-      if not adapter.checkoutImpl(ctx, "v" & vstr):
-        if not adapter.checkoutImpl(ctx, vstr):
-          quit("Failed to checkout version $1 of $2" % [vstr, depId], 1)
+      if pkg.foreignPm.isSome and pkg.foreignPm.unsafeGet == pmNimble:
+        initNimbleCompat(projPath)
+        
+        discard
 
     # TODO: Might not need the `packages` table tbh...
     packages[depId] = parseManifest(

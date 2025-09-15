@@ -2,15 +2,19 @@ import std/[
   htmlparser,
   httpclient,
   parseutils,
+  parsejson,
   sequtils,
   strutils,
   setutils,
   xmltree,
   options,
+  streams,
   tables,
   uri,
   os
 ]
+
+import std/sugar except collect
 
 import experimental/[
   results
@@ -23,6 +27,13 @@ import ../[
   faever,
   schema
 ]
+
+
+template collect(initer: typed, body: untyped): untyped =
+  block:
+    var it{.inject.} = initer
+    body
+    it
 
 
 proc getOrDefault[T](s: seq[T], idx: int, default: T): T =
@@ -230,7 +241,8 @@ proc requireToDep*(s: string): tuple[name: string, decl: DependencyV0] =
   while idx < s.len:
     var op = ""
 
-    idx += s.skipWhitespace(idx)
+    idx += s.skipWhitespace(idx)    
+    if idx >= s.len: break
     idx += s.parseWhile(op, NimbleReqOpChars, idx)
 
     if op notin NimbleOps:
@@ -287,22 +299,135 @@ proc requireToDep*(s: string): tuple[name: string, decl: DependencyV0] =
         excl: @[res.unsafeGet.nextMinor]
       ))
 
+    if not result.decl.constr.isSatisfiable:
+      echo ("Constraint for dependency `$1` is unsatisfiable, specify it " &
+        "manually in your manifest!") % [result.name]
+      return
 
-proc getNimbleName*(
-  projPath, name: string,
-  decl: var DependencyV0
+
+proc getNimblePkgName(
+  pkg: PackageData
 ): string =
-  let
-    adapter = origins[decl.origin]
-    ctx = OriginContext(targetDir: projPath / ".skull" /
-      decl.toPkgData.getFolderName)
+  let nimbleManifests = toSeq(walkFiles(pkg.diskLoc / pkg.subdir / "*.nimble"))
 
-  if not adapter.clone(ctx, decl.src):
-    quit("Failed to clone dependency `$1`" % [decl.toId], 1)
+  if nimbleManifests.len < 1:
+    quit("No nimble manifest found for package `" & pkg.id & "`", 1)
+  
+  elif nimbleManifests.len > 1:
+    quit("Multiple nimble manifests found for package `" & pkg.id &
+      "`, can't decide!", 1)
+
+  else: nimbleManifests[0].splitFile().name
 
 
-proc getNimbleNames*(
+proc getNimbleExpandedNames(
   projPath: string,
-  deps: Table[string, DependencyV0]
-): Table[string, DependencyV0] =
-  discard
+  names: openArray[string]
+): Table[string, string] =
+  let pkgDataStrm = try:
+      openFileStream(projPath / ".fae" / "nimblepkgs.json", fmRead)
+    except IOError:
+      quit("Failed to open `nimblepkgs.json` for Nimble compat!", 1)
+
+  var
+    parser: JsonParser
+    arrayLevel = 0
+  parser.open(pkgDataStrm, "nimblepkgs.json")
+
+  while true:
+    parser.next()
+
+    case parser.kind()
+    of jsonError, jsonEof:
+      quit("Failed to parse `nimblepkgs.json` for Nimble compat!", 1)
+    of jsonArrayStart:
+      inc arrayLevel
+    of jsonArrayEnd:
+      dec arrayLevel
+      if arrayLevel == 0: break
+    of jsonObjectStart:
+      # TODO: Do some error reporting please....
+      var
+        skip = false
+        matchFound = false
+        pkgUrl: string
+
+      while parser.kind() != jsonObjectEnd:
+        parser.next()
+
+        if skip: continue
+
+        if parser.kind() != jsonString:
+          quit("Failed to parse `nimblepkgs.json` for Nimble compat!", 1)
+        
+        let key = parser.str().toLowerAscii()
+
+        if key notin ["name", "url"]:
+          parser.next()
+          case parser.kind()
+          # TODO: Clean up
+          of jsonString, jsonInt, jsonFloat, jsonTrue, jsonFalse, jsonArrayEnd, jsonObjectEnd:
+            # It'll get dropped during next loop
+            continue
+          of jsonArrayStart:
+            inc arrayLevel
+            parser.next()
+            while arrayLevel > 1:
+              if parser.kind() == jsonArrayStart:
+                inc arrayLevel
+              elif parser.kind() == jsonArrayEnd:
+                dec arrayLevel
+              parser.next()
+            continue
+          else:
+            quit("Failed to parse `nimblepkgs.json` for Nimble compat!", 1)
+
+        if key == "name":
+          if parser.str() notin names:
+            skip = true
+            continue
+          matchFound = true
+        elif key == "url":
+          pkgUrl = parser.str()
+
+        if matchFound and pkgUrl != "":
+          result[parser.str()] = pkgUrl
+          skip = true
+
+    else:
+      quit("Failed to parse `nimblepkgs.json` for Nimble compat!", 1)
+
+  parser.close()
+
+
+
+
+
+
+
+proc initManifestFromNimblePkg*(
+  pkg: PackageData
+) =
+  let
+    nimbleName = getNimblePkgName(pkg)
+    nbMan = parseNimble(pkg.diskLoc / pkg.subdir / nimbleName & ".nimble")
+
+  var deps = nbMan.requiresData.map(requireToDep).toTable
+
+  let unexpanded = block:
+    var res: Table[string, DependencyV0]
+
+    for name in toSeq(deps.keys):
+      if "://" notin name:
+        res[name] = deps[name]
+        deps.del(name)
+
+    res
+
+  
+
+  let m = ManifestV0(
+    format: 0,
+    package: PackageV0(name: nimbleName, srcDir: nbMan.srcDir),
+    #dependencies: 
+  )

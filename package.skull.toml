@@ -27,4 +27,19 @@ version    = "0.7.2"
 # non-declarative package manifests... Your manifest shouldn't be code though...
 foreign-pm = "nimble"
 
-# TODO: Features section
+# Proposed syntax
+#[features]
+#defaults = ["foo", "bar"]
+
+# Accessible to code via `defined(github.com/luyten-orion/faepkg.features.foo)`
+#[features.foo.dependencies.alttoml]
+#src        = "foo.bar/alttoml"
+#origin     = "git"
+#scheme     = "https"
+#version    = "1.0.0"
+
+#[features.bar.dependencies.richlog]
+#src        = "foo.bar/richlog"
+#origin     = "git"
+#scheme     = "https"
+#version    = "1.0.0"
