@@ -3,6 +3,8 @@ import std/[
   tables
 ]
 
+from std/sugar import `->`
+
 import parsetoml
 
 import ../schema
@@ -15,10 +17,11 @@ type
   OriginAdapter* = object
     # TODO: Maybe a callback for fetching only the manifest?
     # this is a large stroke of code though, many actions bundled into one proc.
-    cloneImpl*: proc(ctx: OriginContext, url: string): bool {.closure.}
-    fetchImpl*: proc(ctx: OriginContext, url, refr: string): bool {.closure.}
-    resolveImpl*: proc(ctx: OriginContext, refr: string): Option[string] {.closure.}
-    checkoutImpl*: proc(ctx: OriginContext, refr: string): bool {.closure.}
+    cloneImpl*: (ctx: OriginContext, url: string) -> bool
+    fetchImpl*: (ctx: OriginContext, url: string, refr: string) -> bool
+    resolveImpl*: (ctx: OriginContext, refr: string) -> Option[string]
+    checkoutImpl*: (ctx: OriginContext, refr: string) -> bool
+    isVcs*: (ctx: OriginContext) -> bool
 
 
 # Populated at startup, should never be modified afterwards... Can't enforce
@@ -43,3 +46,7 @@ proc resolve*(adapter: OriginAdapter, ctx: OriginContext, refr: string): Option[
 
 proc checkout*(adapter: OriginAdapter, ctx: OriginContext, refr: string): bool =
   adapter.checkoutImpl(ctx, refr)
+
+
+proc isVcs*(adapter: OriginAdapter, ctx: OriginContext): bool =
+  adapter.isVcs(ctx)

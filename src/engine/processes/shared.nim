@@ -13,6 +13,7 @@ import parsetoml
 import ../private/tomlhelpers
 import ../[
   resolution,
+  adapters,
   schema,
   faever
 ]
@@ -109,3 +110,52 @@ proc parseManifest*(f: string, dir = "."): ManifestV0 =
   except TomlError as e:
     quit("Failed to parse the package manifest: " & e.msg, 1)
   res
+
+
+proc toOriginCtx(pkg: PackageData): OriginContext =
+  OriginContext(
+    targetDir: pkg.diskLoc
+  )
+
+
+proc clone*(
+  pkg: PackageData
+) =
+  let adapter = origins[pkg.origin]
+
+  # TODO: Do some validation to ensure that this *is* the correct package
+  if adapter.isVcs(pkg.toOriginCtx): return
+
+  if not adapter.clone(pkg.toOriginCtx, $pkg.loc):
+    quit("Failed to clone package `" & pkg.id & "`", 1)
+
+
+proc checkout*(
+  pkg: PackageData,
+  version: FaeVer
+) =
+  let
+    adapter = origins[pkg.origin]
+    ctx = pkg.toOriginCtx
+    vstr = $version
+
+  if not adapter.fetch(ctx, $pkg.loc, "v" & vstr):
+    if adapter.fetch(ctx, $pkg.loc, vstr):
+      quit("Failed to fetch package `" & pkg.id & "`", 1)
+
+  if not adapter.checkout(ctx, "v" & vstr):
+    if adapter.checkout(ctx, vstr):
+      quit("Failed to checkout package `" & pkg.id & "`", 1)
+
+
+proc checkout*(
+  pkg: PackageData,
+  refr: string
+) =
+  let adapter = origins[pkg.origin]
+
+  if not adapter.fetch(pkg.toOriginCtx, $pkg.loc, refr):
+    quit("Failed to fetch package `" & pkg.id & "`", 1)
+
+  if not adapter.checkout(pkg.toOriginCtx, refr):
+    quit("Failed to checkout package `" & pkg.id & "`", 1)

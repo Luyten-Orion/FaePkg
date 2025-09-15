@@ -424,6 +424,8 @@ proc initManifestFromNimblePkg*(
       if "://" notin name:
         unexpanded[name] = deps[name]
         deps.del(name)
+      else:
+        fetchInfo(parseUri(name), deps[name])
 
     let expanded = getNimbleExpandedNames(projPath, toSeq(unexpanded.keys))
 

@@ -63,9 +63,16 @@ proc gitCheckoutImpl*(ctx: OriginContext, refr: string): bool =
   # returns true on success
   gitExec(ctx.targetDir, ["checkout", refr]).code == 0
 
+
+proc gitIsVcsImpl*(ctx: OriginContext): bool =
+  # returns true if the directory is a git repo
+  dirExists(ctx.targetDir / ".git")
+
+
 origins["git"] = OriginAdapter(
   cloneImpl: gitCloneImpl,
   fetchImpl: gitFetchImpl,
   resolveImpl: gitResolveImpl,
-  checkoutImpl: gitCheckoutImpl
+  checkoutImpl: gitCheckoutImpl,
+  isVcs: gitIsVcsImpl
 )

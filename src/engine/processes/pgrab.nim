@@ -21,6 +21,8 @@ import ../[
 import ./shared
 
 
+# TODO: Add some sort of validation to ensure that a package we're grabbing
+# isn't imitating another thoughtlessly.
 proc grabPkg(
   g: DependencyGraph,
   pkg: PackageData,
@@ -30,8 +32,8 @@ proc grabPkg(
     adapter = origins[pkg.origin]
     ctx = OriginContext(targetDir: pkg.diskLoc)
 
-  if not dirExists(ctx.targetDir / ".git"):
-    if not adapter.cloneImpl(ctx, $pkg.loc):
+  if adapter.isVcs(ctx):
+    if not adapter.clone(ctx, $pkg.loc):
       quit("Failed to clone dependency `" & depId & "`", 1)
 
   let vstr = $g.deps[depId].constraint.lo
@@ -39,12 +41,12 @@ proc grabPkg(
   # We should prefer `v` prefixed versions, we have to support non-prefixed
   # versions for nimble, but if I can move that behaviour out of this code,
   # then it will be done
-  if not adapter.fetchImpl(ctx, $pkg.loc, "v" & vstr):
-    if not adapter.fetchImpl(ctx, $pkg.loc, vstr):
+  if not adapter.fetch(ctx, $pkg.loc, "v" & vstr):
+    if not adapter.fetch(ctx, $pkg.loc, vstr):
       quit("Failed to fetch version $1 of $2" % [vstr, depId], 1)
 
-  if not adapter.checkoutImpl(ctx, "v" & vstr):
-    if not adapter.checkoutImpl(ctx, vstr):
+  if not adapter.checkout(ctx, "v" & vstr):
+    if not adapter.checkout(ctx, vstr):
       quit("Failed to checkout version $1 of $2" % [vstr, depId], 1)
 
 
