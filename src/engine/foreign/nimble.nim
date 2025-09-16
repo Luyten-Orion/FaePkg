@@ -326,7 +326,7 @@ proc getNimblePkgName(
 
 proc getNimbleExpandedNames*(
   projPath: string,
-  names: openArray[string]
+  namesP: openArray[string]
 ): Table[string, string] =
   let pkgDataStrm = try:
       openFileStream(projPath / ".skull" / "fae" / "nimblepkgs.json", fmRead)
@@ -337,6 +337,8 @@ proc getNimbleExpandedNames*(
     parser: JsonParser
     arrayLevel = 0
   parser.open(pkgDataStrm, "nimblepkgs.json")
+
+  var names = @namesP
 
   while true:
     parser.next()
@@ -398,11 +400,18 @@ proc getNimbleExpandedNames*(
         if pkgName != "" and pkgUrl != "":
           result[pkgName] = pkgUrl
           skip = true
+          names.del(names.find(pkgName))
 
     else:
       quit("Failed to parse `nimblepkgs.json` for Nimble compat!", 1)
 
   parser.close()
+
+
+proc `?`*(tbl: Table | OrderedTable): TomlValueRef =
+  ## Generic constructor for TOML data. Creates a new `TomlValueKind.Table TomlValueRef`
+  result = newTTable()
+  for key, val in pairs(tbl): result.tableVal[key] = ?val
 
 
 proc initManifestForNimblePkg*(
@@ -414,6 +423,10 @@ proc initManifestForNimblePkg*(
     nbMan = parseNimble(pkg.fullLoc / nimbleName & ".nimble")
 
   var deps = nbMan.requiresData.map(requireToDep).toTable
+
+  for name in ["nim", "compiler"]:
+    if name in deps:
+      deps.del(name)
 
   block:
     var unexpanded: Table[string, DependencyV0]
@@ -452,4 +465,4 @@ proc initManifestForNimblePkg*(
   )
 
   # TODO: Make TOML serialiser for our types
-  #writeFile(pkg.fullLoc / "package.skull.toml", $(?m))
+  writeFile(pkg.fullLoc / "package.skull.toml", $(?*m))
