@@ -21,16 +21,15 @@ import experimental/[
   results
 ]
 
-import ../processes/shared
+import parsetoml
 
+import ../private/tomlhelpers
+import ../processes/shared
 import ../[
   adapters,
   faever,
   schema
 ]
-
-
-import parsetoml
 
 
 template collect(initer: typed, body: untyped): untyped =
@@ -146,7 +145,7 @@ proc fetchInfo(gUrl: Uri, dep: var DependencyV0) =
 
   while uris.len > 0:
     # There is absoLUTELY a better way to do this, but I have back pain rn
-    template quitOrCont = 
+    template quitOrCont =
       if uris.len == 0:
         quit "Failed to resolve $1, can't proceed!" % [$url], 1
       else:
@@ -165,8 +164,12 @@ proc fetchInfo(gUrl: Uri, dep: var DependencyV0) =
         except HttpRequestError:
           quitOrCont
       parsed = parseHtml(resp)
-    
-    head = parsed.child("head")
+
+    let html = parsed.child("html")
+    if html == nil:
+      quitOrCont
+
+    head = html.child("head")
     if head == nil:
       quitOrCont
 
@@ -177,7 +180,8 @@ proc fetchInfo(gUrl: Uri, dep: var DependencyV0) =
   let repoInfo = head.findAll("meta")
     .filterIt(it.attr("name") == "go-import")
     .mapIt(
-      if it == nil: quit "Failed to resolve $1, can't proceed!" % [$sUrl], 1
+      if it == nil:
+        quit "Failed to resolve $1, can't proceed!" % [$sUrl], 1
       else: it.attr("content"))
     .getOrDefault(0, "")
 
@@ -187,11 +191,14 @@ proc fetchInfo(gUrl: Uri, dep: var DependencyV0) =
   let
     parts = repoInfo.split(' ', 2)
 
-  if parts.len != 2:
+  if parts.len != 3:
     quit "Failed to resolve $1, can't proceed!" % [$sUrl], 1
 
   dep.origin = parts[1]
-  dep.src = parts[2]
+  var parsedUri = parseUri(parts[2])
+  dep.scheme = parsedUri.scheme
+  parsedUri.scheme = ""
+  dep.src = $parsedUri
   # TODO: Support more VCSes, but tbh this is a very low priority
   # thing since I am pretty sure that the only repos in the packages.json rn
   # are git repos, since bitbucket doesn't have free hosting anymore
@@ -448,12 +455,14 @@ proc initManifestForNimblePkg*(
 
     for name, url in expanded:
       deps[url] = unexpanded[name]
-      fetchInfo(parseUri(url), deps[name])
+      fetchInfo(parseUri(url), deps[url])
 
   var dependencies: Table[string, DependencyV0]
 
   for name, dep in deps:
-    let pkgData = dep.toPkgData()
+    var pkgData = dep.toPkgData()
+    pkgData.diskLoc = projPath / ".skull" / "packages" / pkgData.getFolderName
+    ensureDirExists(pkgData.diskLoc)
     pkgData.clone()
     dependencies[pkgData.getNimblePkgName()] = dep
 
@@ -465,4 +474,4 @@ proc initManifestForNimblePkg*(
   )
 
   # TODO: Make TOML serialiser for our types
-  writeFile(pkg.fullLoc / "package.skull.toml", $(?*m))
+  writeFile(pkg.fullLoc / "package.skull.toml", m.dumpToml())

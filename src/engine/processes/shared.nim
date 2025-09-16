@@ -146,11 +146,11 @@ proc checkout*(
     vstr = $version
 
   if not adapter.fetch(ctx, $pkg.loc, "v" & vstr):
-    if adapter.fetch(ctx, $pkg.loc, vstr):
+    if not adapter.fetch(ctx, $pkg.loc, vstr):
       quit("Failed to fetch package `" & pkg.id & "`", 1)
 
   if not adapter.checkout(ctx, "v" & vstr):
-    if adapter.checkout(ctx, vstr):
+    if not adapter.checkout(ctx, vstr):
       quit("Failed to checkout package `" & pkg.id & "`", 1)
 
 

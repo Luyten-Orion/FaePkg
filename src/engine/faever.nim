@@ -295,3 +295,11 @@ proc fromTomlImpl*(
 ) =
   assert t.kind == TomlValueKind.String
   res = FaeVerConstraint.parse(t.getStr)
+
+
+proc toTomlImpl*(v: FaeVer, conf: TomlEncoderConfig): TomlValueRef =
+  newTString($v)
+
+
+proc toTomlImpl*(v: FaeVerConstraint, conf: TomlEncoderConfig): TomlValueRef =
+  newTString($v)

@@ -72,12 +72,12 @@ proc toTomlImpl*(n: SomeNumber, conf: TomlEncoderConfig): TomlValueRef = ?n
 proc toTomlImpl*(b: bool, conf: TomlEncoderConfig): TomlValueRef = ?b
 proc toTomlImpl*(u: Uri, conf: TomlEncoderConfig): TomlValueRef = ?u
 proc toTomlImpl*(t: TomlValueRef, conf: TomlEncoderConfig): TomlValueRef = t
-
+proc toTomlImpl*[T: enum](e: T, conf: TomlEncoderConfig): TomlValueRef = ?e
 
 proc toTomlImpl*[T](o: Option[T], conf: TomlEncoderConfig): TomlValueRef =
   mixin toTomlImpl
   if o.isSome: toTomlImpl(o.unsafeGet, conf)
-  else: nil
+  else: tomlNone
 
 
 proc toTomlImpl*[T](o: openArray[T], conf: TomlEncoderConfig): TomlValueRef =
@@ -91,15 +91,22 @@ proc toTomlImpl*[T: object](obj: T, conf: TomlEncoderConfig): TomlValueRef =
   result = newTTable()
 
   for k, v in obj.fieldPairs:
-    block:
-      if hasCustomPragma(v, ignore): break
+    block outer:
+      const
+        ShouldIgnore = hasCustomPragma(v, ignore)
+        IsOptional = hasCustomPragma(v, optional)
 
-      if hasCustomPragma(v, optional):
-        if conf.omitOptionalDefaults and v == getCustomPragmaVal(v, optional):
-          break
+      when ShouldIgnore: break outer
+
+      when IsOptional:
+        if conf.omitOptionalDefaults and v == getCustomPragmaVal(v, optional).default:
+            break outer
+
+      when v is Option:
+        if v.isNone: break outer
 
       let name =
-        if hasCustomPragma(v, rename): getCustomPragmaVal(v, rename)
+        when hasCustomPragma(v, rename): getCustomPragmaVal(v, rename)
         else: k
 
       # TODO: To implement this, we need a custom dumper
@@ -124,13 +131,14 @@ proc toTomlImpl*[T](o: ref T, conf: TomlEncoderConfig): TomlValueRef =
   else: toTomlImpl(o[], conf)
 
 
-proc toToml*[T: object | ref object](
+proc toToml*[T](
   o: T,
   conf = DefaultEncoderConfig
-): TomlValueRef = toTomlImpl(o, conf)
+): TomlValueRef =
+  mixin toTomlImpl
+
+  toTomlImpl(o, conf)
 
 
 proc dumpToml*[T](v: T, conf = DefaultEncoderConfig): string =
-  mixin toTomlImpl
-  
-  $toTomlImpl(v, conf)
+  $toToml(v, conf)
