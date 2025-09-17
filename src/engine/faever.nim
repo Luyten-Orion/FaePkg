@@ -217,6 +217,10 @@ proc nextMinor*(v: FaeVer): FaeVer =
 # TODO: Verify if it is possible to meet the constraint, and find the lowest
 # version that does.
 proc parse*(T: typedesc[FaeVerConstraint], s: string): T =
+  var
+    verifySatisfiability = true
+    firstIter = true
+
   if s.strip(chars={' '}).len == 0:
     raise ValueError.newException("Malformed constraint string: " & s)
 
@@ -224,6 +228,11 @@ proc parse*(T: typedesc[FaeVerConstraint], s: string): T =
     var constrs: seq[tuple[op: FaeVerOp, ver: FaeVer]]
 
     for constr in s.split(',').mapIt(it.strip(chars={' '})):
+      if firstIter and constr == "*":
+        verifySatisfiability = false
+        firstIter = false
+        continue
+
       let (op, opLen) = block:
         var opStr = newStringOfCap(2)
 
@@ -266,8 +275,10 @@ proc parse*(T: typedesc[FaeVerConstraint], s: string): T =
   assert constraints.len > 0, "You must specify a lower bound at minimum!"
   result = foldl(constraints, merge(a, b))
 
-  assert result.lo != FaeVer.neg, "A lower bound must be supplied!"
-
+  if verifySatisfiability:
+    # TODO: Why do I use this? Smth smth data
+    # should be validated by the user?
+    assert result.lo != FaeVer.neg, "A lower bound must be supplied!"
 
 
 proc `$`*(s: FaeVer): string =
@@ -277,6 +288,44 @@ proc `$`*(s: FaeVer): string =
 
   if s.buildMetadata.len > 0:
     result &= "+" & s.buildMetadata
+
+
+proc `$`*(s: FaeVerConstraint): string =
+  var parts: seq[string]
+
+  if not s.isSatisfiable: parts.add "*"
+
+  block:
+    if s.lo == s.hi:
+      parts.add $s.lo
+    else:
+      if s.lo == FaeVer.neg and s.hi == FaeVer.high:
+        break
+    
+      if s.lo == s.hi:
+        parts.add "==" & $s.lo
+        break
+
+      if s.lo in s.excl:
+        parts.add ">" & $s.lo
+      else:
+        if s.hi == s.lo.nextMajor and s.hi notin s.excl:
+          parts.add "^" & $s.lo
+          break
+        elif s.hi == s.lo.nextMinor and s.hi notin s.excl:
+          parts.add "~" & $s.lo
+          break
+        else:
+          parts.add ">=" & $s.lo
+
+      if s.hi != FaeVer.high:
+        if s.hi in s.excl:
+          parts.add "<" & $s.hi
+        else:
+          parts.add "<=" & $s.hi
+
+  parts.join(",")
+
 
 
 proc fromTomlImpl*(
