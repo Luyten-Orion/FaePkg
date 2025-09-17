@@ -67,7 +67,7 @@ proc initNimbleCompat*(projPath: string) =
   # Should only be ran once per program instantiation anyway
   if packagesJsonUpToDate: return
 
-  ensureDirExists(".skull" / "fae", currDir = projPath)
+  ensureDirExists(projPath / ".skull" / "fae")
   let path = projPath / ".skull" / "fae" / "nimblepkgs.json"
 
   let
@@ -425,13 +425,13 @@ proc initManifestForNimblePkg*(
   projPath: string,
   pkg: PackageData
 ) =
-  let
-    nimbleName = getNimblePkgName(pkg)
-    nbMan = parseNimble(pkg.fullLoc / nimbleName & ".nimble")
+  let nbMan = parseNimble(pkg.fullLoc / getNimblePkgName(pkg) & ".nimble")
 
   var deps = nbMan.requiresData.map(requireToDep).toTable
 
   for name in ["nim", "compiler"]:
+    # TODO: Warn if the version is greater than 1.6, since Skull is a hardfork
+    # of 1.6, and even then there's no compatibility guarantee
     if name in deps:
       deps.del(name)
 
@@ -469,7 +469,7 @@ proc initManifestForNimblePkg*(
 
   let m = ManifestV0(
     format: 0,
-    package: PackageV0(name: nimbleName, srcDir: nbMan.srcDir),
+    package: PackageV0(name: pkg.id, srcDir: nbMan.srcDir),
     dependencies: dependencies
   )
 
