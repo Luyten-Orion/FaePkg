@@ -5,7 +5,6 @@ import std/[
   options,
   tables,
   sets,
-  uri,
   os
 ]
 
@@ -27,10 +26,6 @@ proc grab(
   pkg: PackageData,
   ver: FaeVer
 ) =
-  let
-    adapter = origins[pkg.origin]
-    ctx = OriginContext(targetDir: pkg.diskLoc)
-
   pkg.clone()
   # TODO: Consider if `pkg.fetch` should be an operation?
   pkg.checkout(ver)

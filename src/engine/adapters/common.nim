@@ -7,7 +7,10 @@ from std/sugar import `->`
 
 import parsetoml
 
-import ../schema
+import ../[
+  faever,
+  schema
+]
 
 type
   OriginContext* = object
@@ -19,7 +22,8 @@ type
     # this is a large stroke of code though, many actions bundled into one proc.
     cloneImpl*: (ctx: OriginContext, url: string) -> bool
     fetchImpl*: (ctx: OriginContext, url: string, refr: string) -> bool
-    resolveImpl*: (ctx: OriginContext, refr: string) -> Option[string]
+    #resolveImpl*: (ctx: OriginContext, refr: string) -> Option[string]
+    pseudoversionImpl*: (ctx: OriginContext, refr: string) -> FaeVer
     checkoutImpl*: (ctx: OriginContext, refr: string) -> bool
     isVcs*: (ctx: OriginContext) -> bool
 
@@ -40,8 +44,20 @@ proc fetch*(adapter: OriginAdapter, ctx: OriginContext, url, refr: string): bool
   adapter.fetchImpl(ctx, url, refr)
 
 
-proc resolve*(adapter: OriginAdapter, ctx: OriginContext, refr: string): Option[string] =
-  adapter.resolveImpl(ctx, refr)
+#proc resolve*(adapter: OriginAdapter, ctx: OriginContext, refr: string): Option[string] =
+#  adapter.resolveImpl(ctx, refr)
+
+
+proc pseudoversion*(
+  adapter: OriginAdapter,
+  ctx: OriginContext,
+  refr: string
+): FaeVer =
+  ## NOTE: This is for git specifically, it may vary from adapter to adapter.
+  ## Creates a pseudoversion using the given reference, usually the tag
+  ## preceding a commit. Format:
+  ## `vX.Y.Z-[prerelease.]<commit date>.<commit hash (12 chars)>`
+  adapter.pseudoversionImpl(ctx, refr)
 
 
 proc checkout*(adapter: OriginAdapter, ctx: OriginContext, refr: string): bool =
