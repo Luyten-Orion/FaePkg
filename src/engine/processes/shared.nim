@@ -144,15 +144,17 @@ proc checkout*(
   let
     adapter = origins[pkg.origin]
     ctx = pkg.toOriginCtx
-    vstr = $version
+  
+  var vstr = $version
 
   if not adapter.fetch(ctx, $pkg.loc, "v" & vstr):
     if not adapter.fetch(ctx, $pkg.loc, vstr):
       quit("Failed to fetch package `" & pkg.id & "`", 1)
+  else:
+    vstr = "v" & vstr
 
-  if not adapter.checkout(ctx, "v" & vstr):
-    if not adapter.checkout(ctx, vstr):
-      quit("Failed to checkout package `" & pkg.id & "`", 1)
+  if not adapter.checkout(ctx, vstr):
+    quit("Failed to checkout package `" & pkg.id & "`", 1)
 
 
 proc checkout*(
