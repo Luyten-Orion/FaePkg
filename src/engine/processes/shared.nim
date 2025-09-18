@@ -79,16 +79,6 @@ proc getFolderName*(src: PackageData): string =
     result.add(DirSep)
 
 
-proc ensureDirExists*(dir: string, sep = DirSep) =
-  var currDir = ""
-
-  for p in dir.split(sep):
-    currDir = currDir / p
-    if p in [".", ".."]: continue
-    if not dirExists(currDir):
-      createDir(currDir)
-
-
 proc registerDep*(
   pkgMap: var Table[string, PackageData],
   g: DependencyGraph,

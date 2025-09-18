@@ -67,7 +67,7 @@ proc initNimbleCompat*(projPath: string) =
   # Should only be ran once per program instantiation anyway
   if packagesJsonUpToDate: return
 
-  ensureDirExists(projPath / ".skull" / "fae")
+  createDir(projPath / ".skull" / "fae")
   let path = projPath / ".skull" / "fae" / "nimblepkgs.json"
 
   let
@@ -462,7 +462,7 @@ proc initManifestForNimblePkg*(
   for name, dep in deps:
     var pkgData = dep.toPkgData()
     pkgData.diskLoc = projPath / ".skull" / "packages" / pkgData.getFolderName
-    ensureDirExists(pkgData.diskLoc)
+    createDir(pkgData.diskLoc)
     pkgData.clone()
     dependencies[pkgData.getNimblePkgName()] = dep
 

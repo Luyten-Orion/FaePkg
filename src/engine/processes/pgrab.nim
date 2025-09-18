@@ -10,6 +10,7 @@ import std/[
 
 import parsetoml
 
+import ../../logging
 import ../foreign/nimble
 import ../[
   resolution,
@@ -126,6 +127,6 @@ proc grabR*(projPath: string) =
       pkgMap.registerDep(g, depId, pkgData, dep.constr)
 ]#
 
-proc grabR*(projPath: string) =
-  
+proc grabR*(projPath: string, logLevel: LogLevelKind) =
+
   discard

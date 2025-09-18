@@ -2,12 +2,15 @@ when not isMainModule: {.error: "You should never import this file, bug off!".}
 # TODO: Fae's commandline interface
 
 import std/[
+  strutils,
   sugar,
   os
 ]
 import experimental/cmdline
 
 import parsetoml
+
+import ../logging
 
 import ../engine/[
   faever,
@@ -48,6 +51,24 @@ cli.flagBuilder()
   .addTo(cli)
 
 
+cli.flagBuilder()
+  .name("log-level")
+  .alias("l")
+  .describe("Set the log level (default: info)")
+  .parser(string, (opt, val, var args) => (
+    try:
+      args.logLevel = parseEnum[LogLevelKind](val)
+    except ValueError:
+      const ValidLogLevels = ["trace", "debug", "info", "warn", "error"].join("`, `")
+
+      quit(
+        "Invalid log level `$1`, expected one of `$2`" % [val, ValidLogLevels],
+        1
+      )
+  ))
+  .addTo(cli)
+
+
 let grabCmd = cli.commandBuilder()
   .name("grab")
   .describe("Fetch all of the current project/workspace's dependencies.")
@@ -55,8 +76,11 @@ let grabCmd = cli.commandBuilder()
   .addTo(cli, RootCommand)
 
 
-var args = cli.run(commandLineParams(), defaults=FaeArgs(
-  projPath: getCurrentDir())
+var args = cli.run(
+  commandLineParams(), defaults=FaeArgs(
+    projPath: getCurrentDir(),
+    logLevel: llInfo
+  )
 )
 
 
