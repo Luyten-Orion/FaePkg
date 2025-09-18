@@ -20,6 +20,29 @@ import ../[
 import ./shared
 
 
+type
+  Package = object
+    manifest: ManifestV0
+    data: PackageData
+    constr: FaeVerConstraint
+
+  UnresolvedPackage = object
+    data: PackageData
+    case isVersioned: bool
+    of true:
+      constr: FaeVerConstraint
+    of false:
+      refr: string
+
+  GrabProcessCtx* = object
+    # ID -> Package
+    packages*: Table[string, Package]
+    # Queue of packages that need to be downloaded first before
+    # anything else... Needed for pseudoversion support and Nimble compat
+    unresolved*: seq[UnresolvedPackage]
+
+
+#[
 # TODO: Add some sort of validation to ensure that a package we're grabbing
 # isn't imitating another thoughtlessly.
 proc grab(
@@ -101,3 +124,8 @@ proc grabR*(projPath: string) =
       let pkgData = pkgMap.mgetOrPut(dep.toId, dep.toPkgData)
       changeStack.add pkgData.id
       pkgMap.registerDep(g, depId, pkgData, dep.constr)
+]#
+
+proc grabR*(projPath: string) =
+  
+  discard
