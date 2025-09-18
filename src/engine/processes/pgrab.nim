@@ -11,7 +11,8 @@ import std/[
 import parsetoml
 
 import ../../logging
-import ../foreign/nimble
+import ../private/tomlhelpers
+#import ../foreign/nimble
 import ../[
   resolution,
   adapters,
@@ -23,24 +24,16 @@ import ./shared
 
 type
   Package = object
-    manifest: ManifestV0
     data: PackageData
-    constr: FaeVerConstraint
-
-  UnresolvedPackage = object
-    data: PackageData
-    case isVersioned: bool
-    of true:
-      constr: FaeVerConstraint
-    of false:
-      refr: string
+    constr: Option[FaeVerConstraint]
 
   GrabProcessCtx* = object
+    graph*: DependencyGraph
     # ID -> Package
     packages*: Table[string, Package]
     # Queue of packages that need to be downloaded first before
     # anything else... Needed for pseudoversion support and Nimble compat
-    unresolved*: seq[UnresolvedPackage]
+    unresolved*: seq[Package]
 
 
 #[
@@ -127,6 +120,65 @@ proc grabR*(projPath: string) =
       pkgMap.registerDep(g, depId, pkgData, dep.constr)
 ]#
 
-proc grabR*(projPath: string, logLevel: LogLevelKind) =
 
-  discard
+proc init(
+  T: typedesc[Package],
+  pkgData: PackageData,
+  constr: FaeVerConstraint
+): T =
+  T(data: pkgData, constr: some(constr))
+
+
+proc init(
+  T: typedesc[Package],
+  pkgData: PackageData
+): T =
+  T(data: pkgData, constr: none(FaeVerConstraint))
+
+
+proc grabR*(projPath: string, logLevel: LogLevelKind) =
+  var
+    ctx = GrabProcessCtx()
+    logger = Logger.new(logLevel)
+
+  let tmpDir = block:
+    let res = getTempDir()
+
+    if not dirExists(res):
+      logger.error("Unable to create temporary directory!")
+      quit(1)
+
+    # Prune any old stuff here
+    removeDir(res / "faetemp")
+    createDir(res / "faetemp")
+
+    res / "faetemp"
+
+  if not dirExists(projPath):
+    logger.error("`$1` is not a valid project directory!" % projPath)
+    quit(1)
+
+  createDir(projPath / ".skull" / "packages")
+
+  let rootId = block:
+    var m: ManifestV0
+
+    try:
+      m = ManifestV0.fromToml(parseFile(projPath / "package.skull.toml"))
+    except IOError:
+      logger.error("Failed to open `package.skull.toml`!")
+      quit(1)
+    except TomlError:
+      logger.error(
+        "Failed to parse `package.skull.toml` because the TOML was malformed!"
+      )
+      quit(1)
+
+    let rootPkg = PackageData(id: m.package.name, diskLoc: projPath)
+
+    ctx.packages[m.package.name] = Package.init(rootPkg)
+
+    rootPkg.id
+
+  template rootPkg: var Package = ctx.packages[rootId]
+

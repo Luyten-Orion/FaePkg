@@ -44,18 +44,15 @@ proc toId*(dep: DependencyV0): string =
   if dep.constr.lo.major != 0:
     result &= "@" & $dep.constr
 
-proc toPkgData*(dep: DependencyV0): PackageData =
+proc toPkgData*(dep: DependencyV0, diskLoc = ""): PackageData =
   PackageData(
     id: dep.toId,
     origin: dep.origin,
     loc: parseUri(&"{dep.scheme}://{dep.src}"),
     subdir: dep.subdir,
-    foreignPm: dep.foreignPkgMngr
+    foreignPm: dep.foreignPkgMngr,
+    diskLoc: diskLoc
   )
-
-
-proc toPkgData*(man: ManifestV0): PackageData =
-  PackageData(id: man.package.name)
 
 
 proc getFolderName*(src: PackageData): string =
@@ -94,19 +91,6 @@ proc registerDep*(
     g.link(id, fromId, constr)
   except ValueError:
     quit &"Failed to register dependency, invalid constraint {constr}: " & id, 1
-
-
-proc parseManifest*(f: string, dir = "."): ManifestV0 =
-  var res: ManifestV0
-  let file = f
-  try:
-    res = ManifestV0.fromToml(parseFile(file))
-  except IOError:
-    quit("No package.skull.toml found in `" & file.parentDir.relativePath(dir) &
-      "`, not a Fae project!", 1)
-  except TomlError as e:
-    quit("Failed to parse the package manifest: " & e.msg, 1)
-  res
 
 
 proc toOriginCtx(pkg: PackageData): OriginContext =
