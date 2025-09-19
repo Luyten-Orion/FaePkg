@@ -10,7 +10,6 @@ import std/[
 
 import parsetoml
 
-import ../private/tomlhelpers
 import ../[
   resolution,
   adapters,
@@ -35,7 +34,7 @@ template fullLoc*(pkg: PackageData): string =
 
 
 # TODO: Figure out a way to gently enforce package IDs having the major version
-# suffixed.
+# suffixed. Possibly add git hooks?
 proc toId*(dep: DependencyV0): string =
   result = [dep.src, dep.subdir]
     .filterIt(not it.isEmptyOrWhitespace)
@@ -43,6 +42,7 @@ proc toId*(dep: DependencyV0): string =
 
   if dep.constr.lo.major != 0:
     result &= "@" & $dep.constr
+
 
 proc toPkgData*(dep: DependencyV0, diskLoc = ""): PackageData =
   PackageData(
@@ -93,10 +93,8 @@ proc registerDep*(
     quit &"Failed to register dependency, invalid constraint {constr}: " & id, 1
 
 
-proc toOriginCtx(pkg: PackageData): OriginContext =
-  OriginContext(
-    targetDir: pkg.diskLoc
-  )
+proc toOriginCtx*(pkg: PackageData): OriginContext =
+  OriginContext(targetDir: pkg.diskLoc)
 
 
 proc clone*(

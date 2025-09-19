@@ -136,16 +136,16 @@ proc init(
   T(data: pkgData, constr: none(FaeVerConstraint))
 
 
-proc synchronise*(projPath: string, logger: LoggerContext) =
+proc synchronise*(projPath: string, logCtx: LoggerContext) =
   var
     ctx = GrabProcessCtx()
-    logger = logger.with("sync")
+    logCtx = logCtx.with("sync")
 
   let tmpDir = block:
     let res = getTempDir()
 
     if not dirExists(res):
-      logger.error("Unable to create temporary directory!")
+      logCtx.error("Unable to create temporary directory!")
       quit(1)
 
     # Prune any old stuff here
@@ -155,30 +155,63 @@ proc synchronise*(projPath: string, logger: LoggerContext) =
     res / "faetemp"
 
   if not dirExists(projPath):
-    logger.error("`$1` is not a valid project directory!" % projPath)
+    logCtx.error("`$1` is not a valid project directory!" % projPath)
     quit(1)
 
   createDir(projPath / ".skull" / "packages")
 
+  # Initialise the root package.
   let rootId = block:
     var m: ManifestV0
 
     try:
       m = ManifestV0.fromToml(parseFile(projPath / "package.skull.toml"))
     except IOError:
-      logger.error("Failed to open `package.skull.toml`!")
+      logCtx.error("Failed to open `package.skull.toml`!")
       quit(1)
     except TomlError:
-      logger.error(
+      logCtx.error(
         "Failed to parse `package.skull.toml` because the TOML was malformed!"
       )
       quit(1)
 
-    let rootPkg = PackageData(id: m.package.name, diskLoc: projPath)
+    var rootPkg = PackageData(id: m.package.name, diskLoc: projPath)
+    let originCtx = rootPkg.toOriginCtx
+
+    for origin in origins.keys:
+      if origins[origin].isVcs(originCtx):
+        rootPkg.origin = origin
+        break
 
     ctx.packages[m.package.name] = Package.init(rootPkg)
+
+    if rootPkg.origin.len == 0:
+      logCtx.warn([
+        "No origin found for package `$1` (the root package)," &
+        "using the major from the ID (if present) as the version."
+      ].join(" ") % rootPkg.id)
+      # `@` is an illegal character in the IDs anyway, but rsplit just in case
+      let splitId = rootPkg.id.rsplit("@", 1)
+      if splitId.len == 2:
+        if splitId[1].len > 1 and splitId[1].startsWith("v"):
+          try:
+            let constr = FaeVerConstraint(lo: FaeVer(
+              major: parseUInt(splitId[1][1..^1]).int,
+              prerelease: "dev"
+            ))
+
+            ctx.packages[m.package.name].constr = some(constr)
+          except ValueError:
+            # TODO: Do we raise an error here? Do we silently ignore? Warn?
+            discard
+
+    else:
+      let ver = origins[rootPkg.origin].pseudoversion(originCtx, "HEAD")
+
+      ctx.packages[m.package.name].constr = some(FaeVerConstraint(lo: ver))
 
     rootPkg.id
 
   template rootPkg: var Package = ctx.packages[rootId]
 
+  
