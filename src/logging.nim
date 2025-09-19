@@ -1,147 +1,183 @@
-# TODO: Reconsider adding groups and having a `LoggerCtx` object, where
-# it can be passed down using something like `loggerCtx.tag("foo")`,
-# which basically creates a callstack-type thing?
 import std/[
   strutils,
-  #macros,
-  tables,
   times
 ]
 
 type
-  LogLevelKind* = enum
-    llTrace = "trace"
-    llDebug = "debug"
-    llInfo = "info"
-    llWarn = "warn"
-    llError = "error"
+  LogLevel* = enum
+    llTrace, llDebug, llInfo, llWarn, llError
 
-  LogLocation* = object
+  LogLoc* = object
     filename: string
     line: int
 
-  LogObject* = object
-    level: LogLevelKind
-    locInfo: LogLocation
-    dateTime: DateTime
-    message: string
-    when defined(debug):
-      stackTrace: string
+  LogData = object
+    lvl: LogLevel
+    msg: string
+    loc: LogLoc
+    time: DateTime
+    stack: seq[string]
 
-  LogHandler* = proc(log: LogObject)
+  FilterFn = proc(ld: LogData): bool
+  HandlerFn = proc(ld: LogData)
 
-  LoggerObj = object
-    level: LogLevelKind
-    handlers: seq[LogHandler]
+  LogCallback* = object
+    filters: seq[FilterFn]
+    handler: HandlerFn
 
-  Logger* = ref LoggerObj
+  Logger* = ref object
+    callbacks: seq[LogCallback]
 
-
-proc new*(T: typedesc[Logger], level: LogLevelKind): T =
-  Logger(level: level)
-
-
-proc addHandler*(logger: Logger, handler: LogHandler) =
-  logger.handlers.add(handler)
+  LoggerContext* = object
+    logger: Logger
+    stack: seq[string]
 
 
-proc log(logger: Logger, log: LogObject) =
-  for handler in logger.handlers:
-    handler(log)
+proc new*[T: Logger](_: typedesc[T]): T = T(callbacks: @[])
 
 
-proc constructLogObj(
-  level: LogLevelKind,
-  locInfo: LogLocation,
-  dateTime: DateTime,
-  message: string
-): LogObject =
-  LogObject(
-    level: level,
-    locInfo: locInfo,
-    dateTime: dateTime,
-    message: message
+proc createLogCallback*(
+  handler: HandlerFn,
+  filters: seq[FilterFn] = @[]
+): LogCallback =
+  LogCallback(filters: filters, handler: handler)
+
+
+proc addCallback*(l: Logger, cb: LogCallback) = l.callbacks.add(cb)
+
+
+template unset(T: typedesc[LogLoc]): T = T(line: -1)
+template isUnset*(ll: LogLoc): bool = ll == LogLoc.unset
+
+proc isValidScopeName(s: string): bool = not (s.len == 0 or '.' in s)
+
+
+proc with*(l: Logger, scope: string): LoggerContext =
+  assert scope.isValidScopeName, "Invalid scope name `$1`" % scope
+  LoggerContext(logger: l, stack: @[scope])
+
+
+proc with*(ctx: LoggerContext, scope: string): LoggerContext =
+  assert scope.isValidScopeName, "Invalid scope name `$1`" % scope
+  LoggerContext(logger: ctx.logger, stack: ctx.stack & scope)
+
+
+proc log(l: Logger, ld: LogData) =
+  echo ld
+
+  for cb in l.callbacks:
+    block handle:
+      for filter in cb.filters:
+        if filter(ld): break handle
+
+      cb.handler(ld)
+
+
+proc constructLogData(
+  lvl: LogLevel,
+  msg: string,
+  loc: LogLoc,
+  stack = newSeq[string]()
+): LogData =
+  LogData(
+    lvl: lvl,
+    msg: msg,
+    loc: loc,
+    time: now(),
+    stack: stack
   )
 
 
-template log*(logger: Logger, level: LogLevelKind, message: string, logLoc = LogLocation(line: -1)) =
-  const InstInfo = instantiationInfo()
-
-  let logLoc =
-    if logLoc.filename == "" and logLoc.line == -1:
-      LogLocation(filename: InstInfo.filename, line: InstInfo.line)
-    else:
-      logLoc
-
-  logger.log(
-    constructLogObj(
-      level,
-      logLoc,
-      now(),
-      message
-    )
-  )
-
-
-template trace*(
-  logger: Logger,
-  message: string,
-  logLoc = LogLocation(line: -1)
+template log*(
+  l: Logger,
+  lvl: LogLevel,
+  msg: string,
+  ll = LogLoc.unset,
+  stack = newSeq[string]()
 ) =
-  const InstInfo = instantiationInfo()
-  logger.log(llTrace, message, LogLocation(
-    filename: InstInfo.filename, line: InstInfo.line
-  ))
+  const I = instantiationInfo()
+
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  l.log(constructLogData(lvl, msg, loc, stack))
 
 
-template debug*(
-  logger: Logger,
-  message: string,
-  logLoc = LogLocation(line: -1)
+template log*(
+  ctx: LoggerContext,
+  lvl: LogLevel,
+  msg: string,
+  ll = LogLoc.unset
 ) =
-  const InstInfo = instantiationInfo()
-  logger.log(llDebug, message, LogLocation(
-    filename: InstInfo.filename, line: InstInfo.line
-  ))
+  const I = instantiationInfo()
+
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  ctx.logger.log(lvl, msg, loc, ctx.stack)
 
 
-template info*(
-  logger: Logger,
-  message: string,
-  logLoc = LogLocation(line: -1)
-) =
-  const InstInfo = instantiationInfo()
-  logger.log(llInfo, message, LogLocation(
-    filename: InstInfo.filename, line: InstInfo.line
-  ))
+template trace*(l: Logger, msg: string, ll = LogLoc.unset) =
+  const I = instantiationInfo()
+
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  l.log(llTrace, msg, loc)
 
 
-template warn*(
-  logger: Logger,
-  message: string,
-  logLoc = LogLocation(line: -1)
-) =
-  const InstInfo = instantiationInfo()
-  logger.log(llWarn, message, LogLocation(
-    filename: InstInfo.filename, line: InstInfo.line
-  ))
+template debug*(l: Logger, msg: string, ll = LogLoc.unset) =
+  const I = instantiationInfo()
+
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  l.log(llDebug, msg, loc)
 
 
-template error*(
-  logger: Logger,
-  message: string,
-  logLoc = LogLocation(line: -1)
-) =
-  const InstInfo = instantiationInfo()
-  logger.log(llError, message, LogLocation(
-    filename: InstInfo.filename, line: InstInfo.line
-  ))
+template info*(l: Logger, msg: string, ll = LogLoc.unset) =
+  const I = instantiationInfo()
+
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  l.log(llInfo, msg, loc)
 
 
-proc stdoutHandler*(log: LogObject) =
-  let
-    logLvl = ($log.level).toUpperAscii
-    src = log.locInfo.filename & ":" & $log.locInfo.line
-    timestamp = log.dateTime.format("yyyy-MM-dd HH:mm:ss")
+template warn*(l: Logger, msg: string, ll = LogLoc.unset) =
+  const I = instantiationInfo()
 
-  echo "[$1 $2 $3] $4" % [logLvl, timestamp, src, log.message]
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  l.log(llWarn, msg, loc)
+
+
+template error*(l: Logger, msg: string, ll = LogLoc.unset) =
+  const I = instantiationInfo()
+
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  l.log(llError, msg, loc)
+
+
+template trace*(ctx: LoggerContext, msg: string, ll = LogLoc.unset) =
+  const I = instantiationInfo()
+
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  ctx.log(llTrace, msg, loc)
+
+
+template debug*(ctx: LoggerContext, msg: string, ll = LogLoc.unset) =
+  const I = instantiationInfo()
+
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  ctx.log(llDebug, msg, loc)
+
+
+template info*(ctx: LoggerContext, msg: string, ll = LogLoc.unset) =
+  const I = instantiationInfo()
+
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  ctx.log(llInfo, msg, loc)
+
+
+template warn*(ctx: LoggerContext, msg: string, ll = LogLoc.unset) =
+  const I = instantiationInfo()
+
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  ctx.log(llWarn, msg, loc)
+
+
+template error*(ctx: LoggerContext, msg: string, ll = LogLoc.unset) =
+  const I = instantiationInfo()
+
+  var loc = if ll.isUnset: LogLoc(filename: I.filename, line: I.line) else: ll
+  ctx.log(llError, msg, loc)

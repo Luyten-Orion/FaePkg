@@ -57,9 +57,10 @@ cli.flagBuilder()
   .describe("Set the log level (default: info)")
   .parser(string, (opt, val, var args) => (
     try:
-      args.logLevel = parseEnum[LogLevelKind](val)
+      args.logLevel = parseEnum[LogLevel](val)
     except ValueError:
-      const ValidLogLevels = ["trace", "debug", "info", "warn", "error"].join("`, `")
+      const ValidLogLevels = ["trace", "debug", "info", "warn", "error"]
+        .join("`, `")
 
       quit(
         "Invalid log level `$1`, expected one of `$2`" % [val, ValidLogLevels],
@@ -69,10 +70,10 @@ cli.flagBuilder()
   .addTo(cli)
 
 
-let grabCmd = cli.commandBuilder()
-  .name("grab")
-  .describe("Fetch all of the current project/workspace's dependencies.")
-  .parser((_, var args) => (args.kind = fkGrab))
+let syncCmd = cli.commandBuilder()
+  .name("sync")
+  .describe("Synchronises the project state with the lockfile (or manifest as a fallback).")
+  .parser((_, var args) => (args.kind = fkSync))
   .addTo(cli, RootCommand)
 
 
@@ -87,5 +88,5 @@ var args = cli.run(
 case args.kind
   of fkNone:
     echo cli.help(RootCommand)
-  of fkGrab:
-    grabCmd(args)
+  of fkSync:
+    syncCmd(args)

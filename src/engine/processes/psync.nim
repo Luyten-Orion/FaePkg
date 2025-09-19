@@ -136,10 +136,10 @@ proc init(
   T(data: pkgData, constr: none(FaeVerConstraint))
 
 
-proc grabR*(projPath: string, logLevel: LogLevelKind) =
+proc synchronise*(projPath: string, logger: LoggerContext) =
   var
     ctx = GrabProcessCtx()
-    logger = Logger.new(logLevel)
+    logger = logger.with("sync")
 
   let tmpDir = block:
     let res = getTempDir()
