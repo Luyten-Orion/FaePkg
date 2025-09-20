@@ -8,6 +8,8 @@ import std/[
 
 import ./[schema, faever]
 
+# TODO: Make data types more explicit about the relations, right now, it's
+# not very clear by just looking at how it works
 type
   WorkingDependency* = object
     # Should probably figure this out tbh, not sure what the ID should be...
@@ -48,11 +50,11 @@ proc add*(g: DependencyGraph, id: string) {.inline.} =
 
 proc link*(
   g: DependencyGraph,
-  toId, fromId: string,
+  dependencyId, dependentId: string,
   constr: FaeVerConstraint
 ) {.inline.} =
-  g.tbl.mgetOrPut(toId, @[]).add:
-    DependencyRelation(id: fromId, constraint: constr)
+  g.tbl.mgetOrPut(dependencyId, @[]).add:
+    DependencyRelation(id: dependentId, constraint: constr)
 
 
 proc unlinkAll*(

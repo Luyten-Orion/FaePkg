@@ -34,6 +34,6 @@ type
     origin*: string
     subdir* {.optional: "".}: string
     # Use a better name pls
-    constr* {.rename: "version".}: FaeVerConstraint # required
+    constr* {.rename: "version".}: Option[FaeVerConstraint]
     refr*: Option[string]
     foreignPkgMngr* {.rename: "foreign-pm".}: Option[PkgMngrKind]

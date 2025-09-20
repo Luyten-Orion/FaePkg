@@ -27,13 +27,19 @@ type
     data: PackageData
     constr: Option[FaeVerConstraint]
 
-  GrabProcessCtx* = object
+  UnresolvedPackage = object
+    data: PackageData
+    version: Option[FaeVer]
+    refr: Option[string]
+
+  SyncProcessCtx* = ref object
+    tmpDir*: string
     graph*: DependencyGraph
     # ID -> Package
     packages*: Table[string, Package]
     # Queue of packages that need to be downloaded first before
     # anything else... Needed for pseudoversion support and Nimble compat
-    unresolved*: seq[Package]
+    unresolved*: seq[UnresolvedPackage]
 
 
 #[
@@ -136,23 +142,105 @@ proc init(
   T(data: pkgData, constr: none(FaeVerConstraint))
 
 
+proc getFaeTempDir(logCtx: LoggerContext): string =
+  ## Returns the temporary directory location for Fae
+  let tmpDir = getTempDir()
+  if not dirExists(tmpDir):
+    logCtx.error([
+      "Unable to create temporary directory in `$1`,",
+      "since it doesn't exist!"
+    ].join(" ") % tmpDir)
+    quit(1)
+  tmpDir / "faetemp"
+
+
+proc rootVersionDetector(
+  pkgData: PackageData,
+  originCtx: OriginContext,
+  logCtx: LoggerContext
+): FaeVer =
+  result = FaeVer(prerelease: "dev")
+
+  let logCtx = logCtx.with("version-detector")
+  if pkgData.origin in origins:
+    return origins[pkgData.origin].pseudoversion(originCtx, "HEAD")
+  # Maybe we need a `fae.cfg` file that can allow people to pass in some
+  # default flags?
+  logCtx.warn([
+    "No version found for package `$1` (the root package),",
+    "attempting to use the major from the ID (if present) as the version."
+  ].join(" ") % pkgData.id)
+
+  # `@` is an illegal character in the IDs anyway, but rsplit just in case
+  let idSplit = pkgData.id.rsplit('@', 1)
+  if idSplit.len > 1:
+    try:
+      if idSplit[1].len > 1 and idSplit[1][0] == 'v':
+        return FaeVer(major: idSplit[1][1..^1].parseUint().int)
+    except ValueError:
+      discard
+
+
+proc registerDependency(
+  ctx: SyncProcessCtx,
+  dependency: DependencyV0,
+  logCtx: LoggerContext
+): PackageData =
+  let logCtx = logCtx.with("dependency-registration")
+  var pkgData = dependency.toPkgData
+
+  
+
+
+proc initRootPackage(
+  ctx: SyncProcessCtx,
+  projPath: string,
+  logCtx: LoggerContext
+): string =
+  ## Initialises the root package and returns its ID
+  let logCtx = logCtx.with("root-pkg-init")
+  var
+    rMan: ManifestV0
+    pkgData: PackageData
+
+  try:
+    rMan = ManifestV0.fromToml(parseFile(projPath / "package.skull.toml"))
+  except IOError:
+    logCtx.error("Failed to open `package.skull.toml`!")
+    quit(1)
+  except TomlError:
+    logCtx.error(
+      "Failed to parse `package.skull.toml` because the TOML was malformed!"
+    )
+    quit(1)
+
+  result = rMan.package.name
+  pkgData = PackageData(id: result, diskLoc: projPath)
+  let originCtx = pkgData.toOriginCtx
+
+  for origin in origins.keys:
+    if origins[origin].isVcs(originCtx):
+      pkgData.origin = origin
+      break
+
+  ctx.packages[result] = Package.init(
+    pkgData,
+    FaeVerConstraint(lo: rootVersionDetector(pkgData, originCtx, logCtx))
+  )
+
+
 proc synchronise*(projPath: string, logCtx: LoggerContext) =
   var
-    ctx = GrabProcessCtx()
     logCtx = logCtx.with("sync")
+    # TODO: Add override for the temporary directory?
+    ctx = SyncProcessCtx(tmpDir: getFaeTempDir(logCtx))
 
-  let tmpDir = block:
-    let res = getTempDir()
-
-    if not dirExists(res):
-      logCtx.error("Unable to create temporary directory!")
-      quit(1)
-
-    # Prune any old stuff here
-    removeDir(res / "faetemp")
-    createDir(res / "faetemp")
-
-    res / "faetemp"
+  try:
+    removeDir(ctx.tmpDir)
+    createDir(ctx.tmpDir)
+  except OSError:
+    logCtx.error("Unable to create the Fae temporary directory!")
+    quit(1)
 
   if not dirExists(projPath):
     logCtx.error("`$1` is not a valid project directory!" % projPath)
@@ -160,58 +248,7 @@ proc synchronise*(projPath: string, logCtx: LoggerContext) =
 
   createDir(projPath / ".skull" / "packages")
 
-  # Initialise the root package.
-  let rootId = block:
-    var m: ManifestV0
-
-    try:
-      m = ManifestV0.fromToml(parseFile(projPath / "package.skull.toml"))
-    except IOError:
-      logCtx.error("Failed to open `package.skull.toml`!")
-      quit(1)
-    except TomlError:
-      logCtx.error(
-        "Failed to parse `package.skull.toml` because the TOML was malformed!"
-      )
-      quit(1)
-
-    var rootPkg = PackageData(id: m.package.name, diskLoc: projPath)
-    let originCtx = rootPkg.toOriginCtx
-
-    for origin in origins.keys:
-      if origins[origin].isVcs(originCtx):
-        rootPkg.origin = origin
-        break
-
-    ctx.packages[m.package.name] = Package.init(rootPkg)
-
-    if rootPkg.origin.len == 0:
-      logCtx.warn([
-        "No origin found for package `$1` (the root package)," &
-        "using the major from the ID (if present) as the version."
-      ].join(" ") % rootPkg.id)
-      # `@` is an illegal character in the IDs anyway, but rsplit just in case
-      let splitId = rootPkg.id.rsplit("@", 1)
-      if splitId.len == 2:
-        if splitId[1].len > 1 and splitId[1].startsWith("v"):
-          try:
-            let constr = FaeVerConstraint(lo: FaeVer(
-              major: parseUInt(splitId[1][1..^1]).int,
-              prerelease: "dev"
-            ))
-
-            ctx.packages[m.package.name].constr = some(constr)
-          except ValueError:
-            # TODO: Do we raise an error here? Do we silently ignore? Warn?
-            discard
-
-    else:
-      let ver = origins[rootPkg.origin].pseudoversion(originCtx, "HEAD")
-
-      ctx.packages[m.package.name].constr = some(FaeVerConstraint(lo: ver))
-
-    rootPkg.id
-
+  let rootId = initRootPackage(ctx, projPath, logCtx)
   template rootPkg: var Package = ctx.packages[rootId]
 
   

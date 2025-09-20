@@ -40,18 +40,26 @@ proc toId*(dep: DependencyV0): string =
     .filterIt(not it.isEmptyOrWhitespace)
     .join("/")
 
-  if dep.constr.lo.major != 0:
-    result &= "@" & $dep.constr
+  # TODO: Move validation logic to a specific `validate` function for schema?
+  if dep.constr.isNone and dep.refr.isNone:
+    raise ValueError.newException("Dependency has no constraint and no ref!")
+  elif dep.constr.isSome and dep.refr.isSome:
+    raise ValueError.newException("Dependency has both constraint and ref!")
+
+  if dep.refr.isSome:
+    result &= "#" & dep.refr.unsafeGet
+  else:
+    if unsafeGet(dep.constr).lo.major != 0:
+      result &= "@" & $dep.constr
 
 
-proc toPkgData*(dep: DependencyV0, diskLoc = ""): PackageData =
+proc toPkgData*(dep: DependencyV0): PackageData =
   PackageData(
     id: dep.toId,
     origin: dep.origin,
     loc: parseUri(&"{dep.scheme}://{dep.src}"),
     subdir: dep.subdir,
-    foreignPm: dep.foreignPkgMngr,
-    diskLoc: diskLoc
+    foreignPm: dep.foreignPkgMngr
   )
 
 
@@ -62,35 +70,23 @@ proc getFolderName*(src: PackageData): string =
       elif c.isUpperAscii:
         result.add('!')
         result.add(c.toLowerAscii)
-      # underscores aren't forbidden, but we're using it to signify hex chars
-      elif c in {'_', '/', '<', '>', ':', '"', '\\', '|', '?', '*'}:
+      elif c notin {'a'..'z', '0'..'9', '@'}:
         result.add('_')
         result.add toHex(c.byte).toLowerAscii
-      # TODO: Be a bit more picky, not wanting to indiscriminately replace
-      # all non-alphanumeric chars, since some symbols are good
-      #elif not c.isAlphaNumeric:
-      #  result.add(c)
-      #  result.add toHex(c.byte).toLowerAscii
       else:
         result.add(c)
     result.add(DirSep)
 
 
-proc registerDep*(
-  pkgMap: var Table[string, PackageData],
-  g: DependencyGraph,
-  fromId: string,
-  pkgData: PackageData,
+# TODO: Consider tightening the relation between the `resolution` code and
+# the package data?
+proc declare*(
+  graph: DependencyGraph,
+  dependent, dependency: PackageData,
   constr: FaeVerConstraint
 ) =
-  let id = pkgData.id
-
-  if id notin pkgMap: pkgMap[id] = pkgData
-  g.add(id)
-  try:
-    g.link(id, fromId, constr)
-  except ValueError:
-    quit &"Failed to register dependency, invalid constraint {constr}: " & id, 1
+  graph.add(dependency.id)
+  graph.link(dependency.id, dependent.id, constr)
 
 
 proc toOriginCtx*(pkg: PackageData): OriginContext =
