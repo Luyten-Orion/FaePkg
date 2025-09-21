@@ -25,21 +25,24 @@ import ./shared
 type
   Package = object
     data: PackageData
-    constr: Option[FaeVerConstraint]
+    constr: FaeVerConstraint
+    isPseudo*: bool
 
   UnresolvedPackage = object
+    # TODO: Maybe *don't* reuse PackageData?
     data: PackageData
-    version: Option[FaeVer]
+    constr: Option[FaeVerConstraint]
     refr: Option[string]
 
   SyncProcessCtx* = ref object
-    tmpDir*: string
+    tmpDir*, rootPkgId*: string
     graph*: DependencyGraph
     # ID -> Package
     packages*: Table[string, Package]
     # Queue of packages that need to be downloaded first before
     # anything else... Needed for pseudoversion support and Nimble compat
-    unresolved*: seq[UnresolvedPackage]
+    # Dependent ID -> Dependencies
+    unresolved*: Table[string, seq[UnresolvedPackage]]
 
 
 #[
@@ -130,16 +133,17 @@ proc grabR*(projPath: string) =
 proc init(
   T: typedesc[Package],
   pkgData: PackageData,
-  constr: FaeVerConstraint
+  constr: FaeVerConstraint,
+  isPseudo = false
 ): T =
-  T(data: pkgData, constr: some(constr))
+  T(data: pkgData, constr: constr, isPseudo: isPseudo)
 
 
-proc init(
-  T: typedesc[Package],
-  pkgData: PackageData
-): T =
-  T(data: pkgData, constr: none(FaeVerConstraint))
+#proc init(
+#  T: typedesc[Package],
+#  pkgData: PackageData
+#): T =
+#  T(data: pkgData, constr: none(FaeVerConstraint))
 
 
 proc getFaeTempDir(logCtx: LoggerContext): string =
@@ -183,13 +187,30 @@ proc rootVersionDetector(
 
 proc registerDependency(
   ctx: SyncProcessCtx,
+  dependentId: string,
   dependency: DependencyV0,
   logCtx: LoggerContext
-): PackageData =
+) =
   let logCtx = logCtx.with("dependency-registration")
-  var pkgData = dependency.toPkgData
-
+  if dependency.constr.isNone and dependency.refr.isNone:
+    logCtx.error(
+      "Dependency `$1` has no version constraint and no reference!" %
+      dependency.src
+    )
+    quit(1)
   
+  elif dependency.constr.isSome and dependency.refr.isSome:
+    logCtx.error(
+      "Dependency `$1` has both a version constraint and a reference!" %
+      dependency.src
+    )
+    quit(1)
+
+  var unresPkg = UnresolvedPackage(data: dependency.toPkgData)
+  unresPkg.refr = dependency.refr
+  unresPkg.constr = dependency.constr
+
+  ctx.unresolved.mgetOrPut(dependentId, @[]).add(unresPkg)
 
 
 proc initRootPackage(
@@ -223,10 +244,92 @@ proc initRootPackage(
       pkgData.origin = origin
       break
 
+  ctx.graph.add(result)
   ctx.packages[result] = Package.init(
     pkgData,
-    FaeVerConstraint(lo: rootVersionDetector(pkgData, originCtx, logCtx))
+    FaeVerConstraint(lo: rootVersionDetector(pkgData, originCtx, logCtx)),
+    true
   )
+
+  for dependency in rMan.dependencies.values:
+    registerDependency(ctx, result, dependency, logCtx)
+
+
+proc advanceResolution*(
+  projPath: string,
+  ctx: SyncProcessCtx,
+  logCtx: LoggerContext,
+): bool =
+  ## Returns true if there were any changes to the graph during this invocation
+  let logCtx = logCtx.with("resolution-cycle")
+
+  var dependents = toSeq(ctx.unresolved.keys)
+
+  while dependents.len > 0:
+    let dependent = dependents.pop()
+
+    while ctx.unresolved[dependent].len > 0:
+      var
+        unresPkg = ctx.unresolved[dependent].pop()
+        unresConstr: FaeVerConstraint
+
+      if unresPkg.constr.isSome: unresConstr = unresPkg.constr.unsafeGet()
+      elif unresPkg.refr.isSome:
+        let
+          unresRefr = unresPkg.refr.unsafeGet()
+          samePkgs = toSeq(ctx.packages.keys).filterIt(
+            it.startsWith(unresPkg.data.id.rsplit('#', 1)[0])
+          )
+        var pseuVer: FaeVer
+
+        template updateId =
+          unresPkg.data.id = unresPkg.data.id.rsplit('#', 1)[0]
+          if pseuVer.major != 0: unresPkg.data.id &= "@v" & $pseuVer.major
+
+        if samePkgs.len > 0:
+          for samePkgId in samePkgs:
+            pseuVer = ctx.packages[samePkgId].data.pseudoversion(unresRefr)
+            # TODO: Maybe a better way to handle this?
+            if (pseuVer.major, pseuVer.minor, pseuVer.patch) != (0, 0, 0):
+              break
+        else:
+          unresPkg.data.diskLoc = (
+            ctx.tmpDir / "packages" / unresPkg.data.getFolderName()
+          )
+          unresPkg.data.clone()
+          pseuVer = unresPkg.data.pseudoversion(unresRefr)
+          updateId
+
+          let oldLoc = unresPkg.data.diskLoc
+          unresPkg.data.diskLoc = (
+            projPath / ".skull" / "packages" / unresPkg.data.getFolderName()
+          )
+          createDir(unresPkg.data.diskLoc)
+          moveDir(oldLoc, unresPkg.data.diskLoc)
+          unresPkg.data.checkout(pseuVer)
+          ctx.packages[unresPkg.data.id] = Package.init(
+            unresPkg.data,
+            FaeVerConstraint(lo: pseuVer),
+            true
+          )
+
+      ctx.graph.declare(
+        ctx.packages[dependent].data,
+        unresPkg.data,
+        unresConstr
+      )
+      if unresPkg.data.id notin ctx.packages:
+        unresPkg.data.diskLoc = (
+          projPath / ".skull" / "packages" / unresPkg.data.getFolderName()
+        )
+        unresPkg.data.clone()
+        unresPkg.data.checkout(unresConstr.lo)
+        ctx.packages[unresPkg.data.id] = Package.init(
+          unresPkg.data,
+          unresConstr
+        )
+
+
 
 
 proc synchronise*(projPath: string, logCtx: LoggerContext) =
@@ -245,10 +348,11 @@ proc synchronise*(projPath: string, logCtx: LoggerContext) =
   if not dirExists(projPath):
     logCtx.error("`$1` is not a valid project directory!" % projPath)
     quit(1)
-
   createDir(projPath / ".skull" / "packages")
 
-  let rootId = initRootPackage(ctx, projPath, logCtx)
-  template rootPkg: var Package = ctx.packages[rootId]
+  ctx.rootPkgId = initRootPackage(ctx, projPath, logCtx)
+  #template rootPkg: var Package = ctx.packages[ctx.rootPkgId]
 
-  
+  var resolveGraph = true
+  while resolveGraph:
+    resolveGraph = advanceResolution(projPath, ctx, logCtx)

@@ -40,7 +40,7 @@ proc toId*(dep: DependencyV0): string =
     .filterIt(not it.isEmptyOrWhitespace)
     .join("/")
 
-  # TODO: Move validation logic to a specific `validate` function for schema?
+  # TODO: Move validation logic to a specific `validate` function for schema
   if dep.constr.isNone and dep.refr.isNone:
     raise ValueError.newException("Dependency has no constraint and no ref!")
   elif dep.constr.isSome and dep.refr.isSome:
@@ -139,3 +139,10 @@ proc checkout*(
 
   if not adapter.checkout(pkg.toOriginCtx, refr):
     quit("Failed to checkout package `" & pkg.id & "`", 1)
+
+
+proc pseudoversion*(
+  pkg: PackageData,
+  refr: string
+): FaeVer =
+  origins[pkg.origin].pseudoversion(pkg.toOriginCtx, refr)

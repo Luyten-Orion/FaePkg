@@ -65,7 +65,7 @@ proc gitResolveImpl*(ctx: OriginContext, refr: string): Option[string] =
 
 
 proc gitPseudoversionImpl*(ctx: OriginContext, refr: string): FaeVer =
-  # returns the resolved ref on success
+  # returns the pseudoversion
   let (tag, commitHash) = block:
     var res = gitExec(
       ctx.targetDir,
@@ -107,7 +107,7 @@ proc gitPseudoversionImpl*(ctx: OriginContext, refr: string): FaeVer =
 
     let timestamp = fromUnix(parseInt(res.output.strip()))
 
-    timestamp.format("yyyymmddhhmmss")
+    timestamp.format("yyyyMMddhhmmss")
 
   result = tag
   if result.prerelease.len > 0: result.prerelease &= "."
