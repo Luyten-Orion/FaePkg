@@ -111,6 +111,7 @@ proc gitPseudoversionImpl*(ctx: OriginContext, refr: string): FaeVer =
 
   result = tag
   if result.prerelease.len > 0: result.prerelease &= "."
+  else: inc result.patch
   result.prerelease &= commitDate & "." & commitHash
 
 

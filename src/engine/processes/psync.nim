@@ -23,22 +23,11 @@ import ./shared
 
 
 type
-  Package = object
-    data: PackageData
-    constr: FaeVerConstraint
-    isPseudo*: bool
-
-  UnresolvedPackage = object
-    # TODO: Maybe *don't* reuse PackageData?
-    data: PackageData
-    constr: Option[FaeVerConstraint]
-    refr: Option[string]
-
   SyncProcessCtx* = ref object
     tmpDir*, rootPkgId*: string
     graph*: DependencyGraph
     # ID -> Package
-    packages*: Table[string, Package]
+    packages*: Packages
     # Queue of packages that need to be downloaded first before
     # anything else... Needed for pseudoversion support and Nimble compat
     # Dependent ID -> Dependencies
@@ -244,7 +233,6 @@ proc initRootPackage(
       pkgData.origin = origin
       break
 
-  ctx.graph.add(result)
   ctx.packages[result] = Package.init(
     pkgData,
     FaeVerConstraint(lo: rootVersionDetector(pkgData, originCtx, logCtx)),
@@ -253,6 +241,25 @@ proc initRootPackage(
 
   for dependency in rMan.dependencies.values:
     registerDependency(ctx, result, dependency, logCtx)
+
+
+proc resolvePackage*(
+  ctx: SyncProcessCtx,
+  unresPkg: UnresolvedPackage,
+  logCtx: LoggerContext
+): string =
+  let logCtx = logCtx.with("unresolved-resolver")
+
+  if '#' in unresPkg.data.id:
+    let
+      idBase = unresPkg.data.id.rsplit('#', 1)[0]
+      samePkgs = toSeq(ctx.packages.pairs).filterIt(
+        it[1].data.id.startsWith(idBase) and it[1].data.loc != unresPkg.data.loc
+      ).toTable
+
+    if samePkgs.len > 0:
+      discard
+      
 
 
 proc advanceResolution*(
@@ -331,12 +338,13 @@ proc advanceResolution*(
 
 
 
+  
+
 
 proc synchronise*(projPath: string, logCtx: LoggerContext) =
-  var
-    logCtx = logCtx.with("sync")
-    # TODO: Add override for the temporary directory?
-    ctx = SyncProcessCtx(tmpDir: getFaeTempDir(logCtx))
+  let logCtx = logCtx.with("sync")
+  # TODO: Add override for the temporary directory?
+  var ctx = SyncProcessCtx(tmpDir: getFaeTempDir(logCtx))
 
   try:
     removeDir(ctx.tmpDir)

@@ -41,6 +41,7 @@ type
 
   FaeVerParseResult* = Result[FaeVer, FaeVerParseError]
 
+
 proc neg*(T: typedesc[FaeVer]): FaeVer = T(major: -1, minor: -1, patch: -1)
 proc low*(T: typedesc[FaeVer]): T = T(major: 0, minor: 0, patch: 0)
 proc high*(T: typedesc[FaeVer]): T =

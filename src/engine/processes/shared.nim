@@ -26,6 +26,20 @@ type
     diskLoc*: string
     foreignPm*: Option[PkgMngrKind]
 
+  Package* = object
+    data*: PackageData
+    constr*: FaeVerConstraint
+    refr*: string
+    isPseudo*: bool
+
+  UnresolvedPackage* = object
+    # TODO: Maybe *don't* reuse PackageData?
+    data*: PackageData
+    constr*: Option[FaeVerConstraint]
+    refr*: Option[string]
+  
+  Packages* = Table[string, Package]
+
 
 template fullLoc*(pkg: PackageData): string =
   [pkg.diskLoc, pkg.subdir]
@@ -85,7 +99,6 @@ proc declare*(
   dependent, dependency: PackageData,
   constr: FaeVerConstraint
 ) =
-  graph.add(dependency.id)
   graph.link(dependency.id, dependent.id, constr)
 
 
@@ -139,6 +152,16 @@ proc checkout*(
 
   if not adapter.checkout(pkg.toOriginCtx, refr):
     quit("Failed to checkout package `" & pkg.id & "`", 1)
+
+
+proc checkout*(
+  pkg: Package,
+) =
+  if pkg.isPseudo:
+    assert pkg.refr != "", "Pseudoversioned packages must have a ref!"
+    checkout(pkg.data, pkg.refr)
+  else:
+    checkout(pkg.data, pkg.constr.lo)
 
 
 proc pseudoversion*(

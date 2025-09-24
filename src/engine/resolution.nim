@@ -6,126 +6,93 @@ import std/[
   sets
 ]
 
+import ../logging
 import ./[schema, faever]
 
-# TODO: Make data types more explicit about the relations, right now, it's
-# not very clear by just looking at how it works
+
 type
-  WorkingDependency* = object
-    # Should probably figure this out tbh, not sure what the ID should be...
-    # could just use the expanded URL as the ID
-    id*: string
-    # The constraint the dependency has been narrowed to, so far
-    constraint*: FaeVerConstraint
+  MergeInfo* = object
+    edges*: seq[DependencyEdge]
+    constr*: FaeVerConstraint
 
-  DependencyRelation* = object
+  DependencyEdge* = object
+    ## Dependency Edge
     id*: string
-    constraint*: FaeVerConstraint
+    constr*: FaeVerConstraint
 
-  ConflictSource* = object
-    dependent*: string
-    rel*: DependencyRelation
+  NarrowedConstraint* = object
+    dependencyId*: string
+    constr*: FaeVerConstraint
 
   DependencyConflict* = object
-    constraintToSatisfy*: FaeVerConstraint
-    sources*: seq[ConflictSource]
+    # The conflicting edges.
+    mergedEdges*: seq[DependencyEdge]
+    conflictingEdge*: DependencyEdge
 
-  ConflictTable* = Table[string, DependencyConflict]
-  ResolveResult* = Result[void, ConflictTable]
+  Conflicts* = seq[DependencyConflict]
+  ResolveResult* = Result[seq[NarrowedConstraint], Conflicts]
 
   DependencyGraph* = ref object
-    deps*: Table[string, WorkingDependency]
-    tbl*: Table[string, seq[DependencyRelation]]
-
-
-proc newGraph*(deps = newSeq[string]()): DependencyGraph =
-  result = DependencyGraph()
-  for dep in deps: result.deps[dep] = WorkingDependency(id: dep)
-
-
-proc add*(g: DependencyGraph, id: string) {.inline.} =
-  if id in g.deps: return
-  g.deps[id] = WorkingDependency(id: id)
+    # Dependent ID -> Dependency Edge (Dependency ID <-> Constraint)
+    edges*: Table[string, seq[DependencyEdge]]
 
 
 proc link*(
   g: DependencyGraph,
-  dependencyId, dependentId: string,
+  dependentId, dependencyId: string,
   constr: FaeVerConstraint
 ) {.inline.} =
-  g.tbl.mgetOrPut(dependencyId, @[]).add:
-    DependencyRelation(id: dependentId, constraint: constr)
+  g.edges.mgetOrPut(dependentId, @[]).add DependencyEdge(
+    id: dependencyId,
+    constr: constr
+  )
 
 
-proc unlinkAll*(
+proc unlinkAllDepsOf*(
   g: DependencyGraph,
-  id: string
+  dependent: string
 ) {.inline.} =
-  g.tbl.del(id)
+  g.edges.del(dependent)
 
 
 proc resolve*(
-  g: DependencyGraph,
-  root: string
+  g: DependencyGraph
 ): ResolveResult =
   var
-    toMerge: Table[string, seq[ConflictSource]]
-    visited: HashSet[string]
-    # `root` is the project dir or workspace that Fae is executed from
-    stack = @[root]
+    conflicts: Conflicts
+    merges: Table[string, MergeInfo]
 
-  while stack.len > 0:
-    let id = stack.pop()
+  for dependentId, dependencies in g.edges:
+    for dependency in dependencies:
+      var tmpConstr =
+        if merges.hasKey(dependency.id):
+          merges[dependency.id].constr
+        else:
+          FaeVerConstraint(lo: FaeVer.low, hi: FaeVer.high)
 
-    visited.incl id
+      tmpConstr = merge(tmpConstr, dependency.constr)
 
-    for depId, dependents in g.tbl:
-      for rel in dependents:
-        if rel.id == id:
-          if depId notin g.deps:
-            raise KeyError.newException("Unknown dependency: " & depId)
-          if depId notin visited:
-            stack.add depId
-          toMerge.mgetOrPut(depId, @[]).add:
-            ConflictSource(dependent: id, rel: rel)
+      if not tmpConstr.isSatisfiable:
+        assert merges.hasKey(dependency.id), "We shouldn't be *able* to get here"
+        conflicts.add DependencyConflict(
+          mergedEdges: merges[dependency.id].edges,
+          conflictingEdge: dependency
+        )
 
+      else:
+        if not merges.hasKey(dependency.id):
+          merges[dependency.id] = MergeInfo(
+            edges: @[],
+            constr: dependency.constr
+          )
 
-  var
-    resolved: Table[string, DependencyRelation]
-    conflicts: ConflictTable
-
-  for id, deps in toMerge:
-    let rootDep = deps.filterIt(it.dependent == root)
-
-    block mergeConstraints:
-      if rootDep.len != 1: break mergeConstraints
-
-      resolved[id] = rootDep[0].rel
-      assert resolved[id].constraint.isSatisfiable, $resolved[id]
-
-    for dep in deps:
-      if dep.dependent == root: continue
-
-      if not resolved.hasKey(id):
-        resolved[id] = dep.rel
-        continue
-
-      let newConstr = merge(resolved[id].constraint, dep.rel.constraint)
-
-      if not newConstr.isSatisfiable:
-        if id notin conflicts:
-          conflicts[id] = DependencyConflict(
-            constraintToSatisfy: resolved[id].constraint, sources: @[])
-        conflicts[id].sources.add dep
-        continue
-
-      resolved[id].constraint = newConstr
+        merges[dependency.id].edges.add dependency
 
   if conflicts.len > 0: return ResolveResult.err(conflicts)
-
-  for id, rel in resolved:
-    if id notin g.deps: raise KeyError.newException("Unknown dependency: " & id)
-    if g.deps[id].constraint == rel.constraint: continue
-    g.deps[id].constraint = rel.constraint
-
-  ResolveResult.ok()
+  ResolveResult.ok(toSeq(merges.pairs)
+    .filterIt(it[1].edges.len > 1)
+    .mapIt(NarrowedConstraint(
+      dependencyId: it[0],
+      constr: it[1].constr
+    ))
+  )
