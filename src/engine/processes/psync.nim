@@ -247,7 +247,7 @@ proc resolvePackage*(
   ctx: SyncProcessCtx,
   unresPkg: UnresolvedPackage,
   logCtx: LoggerContext
-): string =
+): tuple[id: string, ver: FaeVer] =
   let logCtx = logCtx.with("unresolved-resolver")
   var unresPkg = unresPkg
 
@@ -260,7 +260,7 @@ proc resolvePackage*(
     # TODO: Proper guard here? Though this case should never happen
     if unresPkg.refr.isNone:
       logCtx.error(
-        "Package `$1` has a version constraint, but no reference!" % unresPkg.data.id
+        "Package `$1` has no reference but reserved character `#` is in its ID!" % unresPkg.data.id
       )
       quit(1)
 
@@ -306,12 +306,16 @@ proc resolvePackage*(
       )
       quit(1)
 
-    result = idBase & (if pseuVer.major > 0: "@" & $pseuVer.major else: "")
-    ctx.packages[result] = Package.init(
-      unresPkg.data,
-      FaeVerConstraint(lo: pseuVer),
-      true
-    )
+    result.id = idBase & (if pseuVer.major > 0: "@" & $pseuVer.major else: "")
+    unresPkg.data.id = result.id
+    result.ver = pseuVer
+    if not ctx.packages.hasKey(result.id):
+      ctx.packages[result.id] = Package.init(
+        unresPkg.data,
+        FaeVerConstraint(lo: pseuVer),
+        true
+      )
+    return
 
   else:
     # Versioned packages
@@ -337,12 +341,14 @@ proc resolvePackage*(
         )
         quit(1)
 
-      result = samePkgId
+      result.id = samePkgId
+      result.ver = vers
       return
 
     if samePkgs.len == 0:
       # Clone it ourselves
-      result = unresPkg.data.id & (if vers.major > 0: "@" & $vers.major else: "")
+      result.id = unresPkg.data.id & (if vers.major > 0: "@" & $vers.major else: "")
+      result.ver = vers
       unresPkg.data.diskLoc = (
         ctx.tmpDir / "packages" / unresPkg.data.getFolderName()
       )
@@ -355,7 +361,7 @@ proc resolvePackage*(
         )
         quit(1)
 
-      ctx.packages[result] = Package.init(
+      ctx.packages[result.id] = Package.init(
         unresPkg.data,
         unresPkg.constr.unsafeGet(),
         false
@@ -372,70 +378,13 @@ proc advanceResolution*(
   let logCtx = logCtx.with("resolution-cycle")
 
   var dependents = toSeq(ctx.unresolved.keys)
-
   while dependents.len > 0:
-    let dependent = dependents.pop()
-
-    while ctx.unresolved[dependent].len > 0:
-      var
-        unresPkg = ctx.unresolved[dependent].pop()
-        unresConstr: FaeVerConstraint
-
-      if unresPkg.constr.isSome: unresConstr = unresPkg.constr.unsafeGet()
-      elif unresPkg.refr.isSome:
-        let
-          unresRefr = unresPkg.refr.unsafeGet()
-          samePkgs = toSeq(ctx.packages.keys).filterIt(
-            it.startsWith(unresPkg.data.id.rsplit('#', 1)[0])
-          )
-        var pseuVer: FaeVer
-
-        template updateId =
-          unresPkg.data.id = unresPkg.data.id.rsplit('#', 1)[0]
-          if pseuVer.major != 0: unresPkg.data.id &= "@v" & $pseuVer.major
-
-        if samePkgs.len > 0:
-          for samePkgId in samePkgs:
-            pseuVer = ctx.packages[samePkgId].data.pseudoversion(unresRefr)
-            # TODO: Maybe a better way to handle this?
-            if (pseuVer.major, pseuVer.minor, pseuVer.patch) != (0, 0, 0):
-              break
-        else:
-          unresPkg.data.diskLoc = (
-            ctx.tmpDir / "packages" / unresPkg.data.getFolderName()
-          )
-          unresPkg.data.clone()
-          pseuVer = unresPkg.data.pseudoversion(unresRefr)
-          updateId
-
-          let oldLoc = unresPkg.data.diskLoc
-          unresPkg.data.diskLoc = (
-            projPath / ".skull" / "packages" / unresPkg.data.getFolderName()
-          )
-          createDir(unresPkg.data.diskLoc)
-          moveDir(oldLoc, unresPkg.data.diskLoc)
-          unresPkg.data.checkout(pseuVer)
-          ctx.packages[unresPkg.data.id] = Package.init(
-            unresPkg.data,
-            FaeVerConstraint(lo: pseuVer),
-            true
-          )
-
-      ctx.graph.declare(
-        ctx.packages[dependent].data,
-        unresPkg.data,
-        unresConstr
-      )
-      if unresPkg.data.id notin ctx.packages:
-        unresPkg.data.diskLoc = (
-          projPath / ".skull" / "packages" / unresPkg.data.getFolderName()
-        )
-        unresPkg.data.clone()
-        unresPkg.data.checkout(unresConstr.lo)
-        ctx.packages[unresPkg.data.id] = Package.init(
-          unresPkg.data,
-          unresConstr
-        )
+    let dependentId = dependents.pop()
+    # Maybe don't use `defer`...
+    defer: ctx.unresolved.del(dependentId)
+    while ctx.unresolved[dependentId].len > 0:
+      let unresolved = ctx.unresolved[dependentId].pop()
+      
 
 
 
