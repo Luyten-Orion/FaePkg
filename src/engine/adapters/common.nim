@@ -21,8 +21,9 @@ type
     # TODO: Maybe a callback for fetching only the manifest?
     # this is a large stroke of code though, many actions bundled into one proc.
     cloneImpl*: (ctx: OriginContext, url: string) -> bool
-    fetchImpl*: (ctx: OriginContext, url: string, refr: string) -> bool
-    #resolveImpl*: (ctx: OriginContext, refr: string) -> Option[string]
+    fetchRefrImpl*: (ctx: OriginContext, url: string, refr: string) -> bool
+    fetchTagsImpl*: (ctx: OriginContext, url: string) -> bool
+    resolveImpl*: (ctx: OriginContext, refr: string) -> Option[string]
     pseudoversionImpl*: (ctx: OriginContext, refr: string) -> FaeVer
     checkoutImpl*: (ctx: OriginContext, refr: string) -> bool
     isVcs*: (ctx: OriginContext) -> bool
@@ -41,11 +42,15 @@ proc clone*(adapter: OriginAdapter, ctx: OriginContext, url: string): bool =
 
 
 proc fetch*(adapter: OriginAdapter, ctx: OriginContext, url, refr: string): bool =
-  adapter.fetchImpl(ctx, url, refr)
+  adapter.fetchRefrImpl(ctx, url, refr)
 
 
-#proc resolve*(adapter: OriginAdapter, ctx: OriginContext, refr: string): Option[string] =
-#  adapter.resolveImpl(ctx, refr)
+proc fetch*(adapter: OriginAdapter, ctx: OriginContext, url: string): bool =
+  adapter.fetchTagsImpl(ctx, url)
+
+
+proc resolve*(adapter: OriginAdapter, ctx: OriginContext, refr: string): Option[string] =
+  adapter.resolveImpl(ctx, refr)
 
 
 proc pseudoversion*(

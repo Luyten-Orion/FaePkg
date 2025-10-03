@@ -48,11 +48,16 @@ proc gitCloneImpl*(ctx: OriginContext, url: string): bool =
 
 
 # TODO: Handle this more elegantly
-proc gitFetchImpl*(ctx: OriginContext, url, refr: string): bool =
+proc gitFetchRefrImpl*(ctx: OriginContext, url, refr: string): bool =
   # returns true on success
   gitExec(ctx.targetDir, ["fetch", url, refr]).code == 0
 
-#[
+
+proc gitFetchTagsImpl*(ctx: OriginContext, url: string): bool =
+  # returns true on success, gets all tags
+  gitExec(ctx.targetDir, ["fetch", url, "--tags"]).code == 0
+
+
 proc gitResolveImpl*(ctx: OriginContext, refr: string): Option[string] =
   # returns the resolved ref on success
   let res = gitExec(ctx.targetDir, ["rev-parse", refr])
@@ -61,7 +66,6 @@ proc gitResolveImpl*(ctx: OriginContext, refr: string): Option[string] =
     some(res.output.strip)
   else:
     none(string)
-]#
 
 
 proc gitPseudoversionImpl*(ctx: OriginContext, refr: string): FaeVer =
@@ -102,10 +106,11 @@ proc gitPseudoversionImpl*(ctx: OriginContext, refr: string): FaeVer =
     # We'll parse the unix timestamp and convert it to a date
     let res = gitExec(ctx.targetDir, ["show", "-s", "--format=%ct", refr])
 
-    if res.code != 0:
-      quit("Failed to get commit date", 1)
-
-    let timestamp = fromUnix(parseInt(res.output.strip()))
+    let timestamp =
+      if res.code == 0:
+        fromUnix(0)
+      else:
+        fromUnix(parseInt(res.output.strip()))
 
     timestamp.format("yyyyMMddhhmmss")
 
@@ -127,8 +132,9 @@ proc gitIsVcsImpl*(ctx: OriginContext): bool =
 
 origins["git"] = OriginAdapter(
   cloneImpl: gitCloneImpl,
-  fetchImpl: gitFetchImpl,
-  #resolveImpl: gitResolveImpl,
+  fetchRefrImpl: gitFetchRefrImpl,
+  fetchTagsImpl: gitFetchTagsImpl,
+  resolveImpl: gitResolveImpl,
   pseudoversionImpl: gitPseudoversionImpl,
   checkoutImpl: gitCheckoutImpl,
   isVcs: gitIsVcsImpl

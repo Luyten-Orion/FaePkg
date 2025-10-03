@@ -249,17 +249,118 @@ proc resolvePackage*(
   logCtx: LoggerContext
 ): string =
   let logCtx = logCtx.with("unresolved-resolver")
+  var unresPkg = unresPkg
+
+  template getSamePkgs(idBase): seq[string] =
+    toSeq(ctx.packages.pairs).filterIt(
+      it[1].data.id.startsWith(idBase) and it[1].data.loc != unresPkg.data.loc
+    ).mapIt(it[0])
 
   if '#' in unresPkg.data.id:
+    # TODO: Proper guard here? Though this case should never happen
+    if unresPkg.refr.isNone:
+      logCtx.error(
+        "Package `$1` has a version constraint, but no reference!" % unresPkg.data.id
+      )
+      quit(1)
+
     let
+      unresRefr = unresPkg.refr.unsafeGet()
       idBase = unresPkg.data.id.rsplit('#', 1)[0]
-      samePkgs = toSeq(ctx.packages.pairs).filterIt(
-        it[1].data.id.startsWith(idBase) and it[1].data.loc != unresPkg.data.loc
-      ).toTable
+    var
+      pseuVer = FaeVer.neg()
+      samePkgs = getSamePkgs(idBase)
 
     if samePkgs.len > 0:
-      discard
-      
+      # Could move this template to the top-level? Maybe make it a function?
+      template getPkg(id: string): var Package = ctx.packages[id]
+      for samePkgId in samePkgs:
+        getPkg(samePkgId).data.fetch()
+        pseuVer = getPkg(samePkgId).data.pseudoversion(unresRefr)
+        let parts = pseuVer.prerelease.rsplit('.', 2)
+        # "19700101010000" is the earliest possible date from the Unix epoch
+        if parts.len >= 2 and parts[1] != "19700101010000":
+          break
+    
+    else:
+      # Handle cloning ourselves
+      unresPkg.data.diskLoc = (
+        ctx.tmpDir / "packages" / unresPkg.data.getFolderName()
+      )
+
+      unresPkg.data.clone()
+      if not unresPkg.data.checkout(unresRefr):
+        logCtx.error(
+          "Failed to resolve `$1` because it has no commit `$2`" %
+          [unresPkg.data.id, unresRefr]
+        )
+        quit(1)
+  
+      pseuVer = unresPkg.data.pseudoversion(unresRefr)
+
+    let parts = pseuVer.prerelease.rsplit('.', 2)
+    if parts.len < 2 or parts[1] == "19700101010000":
+      logCtx.error(
+        "Failed to resolve `$1` because it has no version in `$2`" %
+        [unresPkg.data.id, unresRefr]
+      )
+      quit(1)
+
+    result = idBase & (if pseuVer.major > 0: "@" & $pseuVer.major else: "")
+    ctx.packages[result] = Package.init(
+      unresPkg.data,
+      FaeVerConstraint(lo: pseuVer),
+      true
+    )
+
+  else:
+    # Versioned packages
+    let vers = unresPkg.constr.unsafeGet().lo
+    var samePkgs = getSamePkgs(unresPkg.data.id)
+
+    for samePkgId in samePkgs:
+      template getPkg(id: string): var Package = ctx.packages[id]
+      getPkg(samePkgId).data.fetch()
+      let adapter = origins[getPkg(samePkgId).data.origin]
+      var resRef = adapter.resolve(
+        getPkg(samePkgId).data.toOriginCtx, "v" & $vers
+      )
+      if resRef.isNone:
+        resRef = adapter.resolve(
+          getPkg(samePkgId).data.toOriginCtx, $vers
+        )
+
+      if resRef.isNone:
+        logCtx.error(
+          "Failed to resolve `$1` because it has no version `$2`" %
+          [unresPkg.data.id, $vers]
+        )
+        quit(1)
+
+      result = samePkgId
+      return
+
+    if samePkgs.len == 0:
+      # Clone it ourselves
+      result = unresPkg.data.id & (if vers.major > 0: "@" & $vers.major else: "")
+      unresPkg.data.diskLoc = (
+        ctx.tmpDir / "packages" / unresPkg.data.getFolderName()
+      )
+
+      unresPkg.data.clone()
+      if not unresPkg.data.checkout(vers):
+        logCtx.error(
+          "Failed to resolve `$1` because it has no version `$2`" %
+          [unresPkg.data.id, $vers]
+        )
+        quit(1)
+
+      ctx.packages[result] = Package.init(
+        unresPkg.data,
+        unresPkg.constr.unsafeGet(),
+        false
+      )
+      return
 
 
 proc advanceResolution*(

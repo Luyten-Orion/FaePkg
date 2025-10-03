@@ -118,10 +118,27 @@ proc clone*(
     quit("Failed to clone package `" & pkg.id & "`", 1)
 
 
+proc fetch*(
+  pkg: PackageData
+) =
+  if not origins[pkg.origin].fetch(pkg.toOriginCtx, $pkg.loc):
+    quit("Failed to fetch package `" & pkg.id & "`", 1)
+
+
+proc fetch*(
+  pkg: PackageData,
+  refr: string
+) =
+  if not origins[pkg.origin].fetch(pkg.toOriginCtx, $pkg.loc, refr):
+    quit("Failed to fetch package `" & pkg.id & "`", 1)
+
+
 proc checkout*(
   pkg: PackageData,
   version: FaeVer
-) =
+): bool =
+  ## Returns true if we successfully checked out the package
+  ## Returns true if the package was already checked out
   let
     adapter = origins[pkg.origin]
     ctx = pkg.toOriginCtx
@@ -141,7 +158,9 @@ proc checkout*(
 proc checkout*(
   pkg: PackageData,
   refr: string
-) =
+): bool =
+  ## Returns true if we successfully checked out the package.
+  ## Returns true if the package was already checked out.
   let adapter = origins[pkg.origin]
 
   # We should prefer `v` prefixed versions, we have to support non-prefixed
@@ -156,7 +175,9 @@ proc checkout*(
 
 proc checkout*(
   pkg: Package,
-) =
+): bool =
+  ## Returns true if we successfully checked out the package.
+  ## Returns true if the package was already checked out.
   if pkg.isPseudo:
     assert pkg.refr != "", "Pseudoversioned packages must have a ref!"
     checkout(pkg.data, pkg.refr)
