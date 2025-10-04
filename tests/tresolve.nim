@@ -1,17 +1,11 @@
 import std/[sequtils, tables, sets]
-
+import experimental/[results]
 import src/engine/[resolution, faever]
 
 
-proc initGraph*(deps: seq[string]): DependencyGraph =
-  result = DependencyGraph()
-  for id in deps:
-    result.deps[id] = WorkingDependency(id: id)
-
-
 block: # valid graph test
-  let g = initGraph(@["root", "libA", "libB", "libC", "libD", "libE", "libF"])
-
+  #@["root", "libA", "libB", "libC", "libD", "libE", "libF"]
+  let g = DependencyGraph()
   g.link("root", "libA", FaeVerConstraint.parse(">=1.0.0"))
   g.link("root", "libB", FaeVerConstraint.parse(">=1.5.0"))
   g.link("libA", "libC", FaeVerConstraint.parse(">=2.0.0"))
@@ -20,18 +14,21 @@ block: # valid graph test
   g.link("libC", "libE", FaeVerConstraint.parse(">=3.0.0"))
   g.link("libD", "libF", FaeVerConstraint.parse(">=1.0.0, <2.0.0"))
 
-  discard g.resolve()
+  let res = g.resolve()
+  assert res.isOk, "Failed to resolve graph: " & $res.error
+  let depTbl = res.unsafeGet().mapIt((it.dependencyId, it.constr)).toTable
 
-  assert g.deps["libA"].constraint.lo == FaeVer(major: 1)
-  assert g.deps["libB"].constraint.lo == FaeVer(major: 1, minor: 5)
-  assert g.deps["libC"].constraint.lo == FaeVer(major: 2, minor: 1)
-  assert g.deps["libD"].constraint.lo == FaeVer(major: 0, minor: 5)
-  assert g.deps["libE"].constraint.lo == FaeVer(major: 3)
-  assert g.deps["libF"].constraint.lo == FaeVer(major: 1)
+  assert depTbl["libA"].lo == FaeVer(major: 1)
+  assert depTbl["libB"].lo == FaeVer(major: 1, minor: 5)
+  assert depTbl["libC"].lo == FaeVer(major: 2, minor: 1)
+  assert depTbl["libD"].lo == FaeVer(major: 0, minor: 5)
+  assert depTbl["libE"].lo == FaeVer(major: 3)
+  assert depTbl["libF"].lo == FaeVer(major: 1)
 
 
 block: # conflicting graph test
-  let g = initGraph(@["root", "libA", "libB", "libC", "libD", "libE", "libF"])
+  #@["root", "libA", "libB", "libC", "libD", "libE", "libF"]
+  let g = DependencyGraph()
 
   g.link("root", "libA", FaeVerConstraint.parse(">=1.0.0"))
   g.link("root", "libB", FaeVerConstraint.parse(">=1.5.0"))
@@ -43,12 +40,25 @@ block: # conflicting graph test
   g.link("libD", "libE", FaeVerConstraint.parse(">=4.1.0"))
   g.link("libD", "libF", FaeVerConstraint.parse(">=1.0.0, <2.0.0"))
 
-  let res = g.resolve()
+  const SuccessfulData = @[DependencyConflictSource(
+    dependentId: "libB",
+    constr: FaeVerConstraint.parse(">=4.0.5,<4.0.6")
+  )]
 
-  assert "libE" in res, "libE should be in the resolution results"
-  assert res["libE"].constraintToSatisfy == FaeVerConstraint.parse(">=4.0.5,<4.0.6")
-  assert res["libE"].sq.len == 2
-  assert res["libE"].sq.mapIt(it.src).toHashSet == ["libC", "libD"].toHashSet
+  let res = g.resolve()
+  assert res.isErr
+  let conflicts = res.error()
+  assert conflicts.len == 2
+
+  assert conflicts[0].successes == SuccessfulData
+  assert conflicts[0].dependencyId == "libE"
+  assert conflicts[0].conflicting.dependentId == "libC"
+  assert conflicts[0].conflicting.constr == FaeVerConstraint.parse(">=3.0.0,<4.0.0")
+
+  assert conflicts[1].successes == SuccessfulData
+  assert conflicts[1].dependencyId == "libE"
+  assert conflicts[1].conflicting.dependentId == "libD"
+  assert conflicts[1].conflicting.constr == FaeVerConstraint.parse(">=4.1.0")
 
 
 
