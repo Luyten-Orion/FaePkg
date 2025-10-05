@@ -68,9 +68,13 @@ proc gitResolveImpl*(ctx: OriginContext, refr: string): Option[string] =
     none(string)
 
 
-proc gitPseudoversionImpl*(ctx: OriginContext, refr: string): FaeVer =
-  # returns the pseudoversion
-  let (tag, commitHash) = block:
+proc gitPseudoversionImpl*(
+  ctx: OriginContext,
+  refr: string
+): Option[tuple[ver: FaeVer, isPseudo: bool]] =
+  # Returns the pseudoversion
+  var tag: FaeVer
+  let commitHash = block:
     var res = gitExec(
       ctx.targetDir,
       ["describe", "--match", "v[0-9]*.[0-9]*.[0-9]*", "--abbrev=12", refr]
@@ -83,41 +87,44 @@ proc gitPseudoversionImpl*(ctx: OriginContext, refr: string): FaeVer =
       )
 
     if res.code != 0:
-      quit("Failed to get previous tag", 1)
+      return none(typeof(result).T)
 
     let parseRes = FaeVer.parse(
       if res.output.startsWith("v"): res.output[1..^1] else: res.output
     )
     
-    var
-      tag = parseRes.get(FaeVer.low())
-      commitHash = tag.prerelease
+    tag = parseRes.get(FaeVer.low())
+    var parts = tag.prerelease.rsplit('-', 3)
 
-    tag.prerelease = ""
+    if parts.len < 2 or (parts[^1].len != 13 and parts[^1][0] != 'g'):
+      return some((tag, false))
+
+
+    tag.prerelease = parts[0]
+    # This shouldn't be present anyway...
     tag.buildMetadata = ""
 
     # Format returned by `git describe` is usually:
     # `<tag>-<commits since tag>-g<commit hash>`
-    commitHash = commitHash.split('-', 1)[1][1..^1]
-
-    (tag, commitHash)
+    parts[^1][1..^1]
 
   let commitDate = block:
     # We'll parse the unix timestamp and convert it to a date
     let res = gitExec(ctx.targetDir, ["show", "-s", "--format=%ct", refr])
 
     let timestamp =
-      if res.code == 0:
+      if res.code != 0:
         fromUnix(0)
       else:
         fromUnix(parseInt(res.output.strip()))
 
     timestamp.format("yyyyMMddhhmmss")
 
-  result = tag
-  if result.prerelease.len > 0: result.prerelease &= "."
-  else: inc result.patch
-  result.prerelease &= commitDate & "." & commitHash
+  if tag.prerelease.len > 0: tag.prerelease &= "."
+  else: inc tag.patch
+  tag.prerelease &= commitDate & "." & commitHash
+  
+  some((tag, true))
 
 
 proc gitCheckoutImpl*(ctx: OriginContext, refr: string): bool =

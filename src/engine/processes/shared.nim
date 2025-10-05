@@ -37,6 +37,7 @@ type
     data*: PackageData
     constr*: Option[FaeVerConstraint]
     refr*: Option[string]
+    foreignPm*: Option[PkgMngrKind]
   
   Packages* = Table[string, Package]
 
@@ -50,15 +51,15 @@ template fullLoc*(pkg: PackageData): string =
 # TODO: Figure out a way to gently enforce package IDs having the major version
 # suffixed. Possibly add git hooks?
 proc toId*(dep: DependencyV0): string =
+  ## If `dep.refr` is set, we use that to generate an ID rather than
+  ## `dep.constr`.
   result = [dep.src, dep.subdir]
     .filterIt(not it.isEmptyOrWhitespace)
     .join("/")
 
   # TODO: Move validation logic to a specific `validate` function for schema
   if dep.constr.isNone and dep.refr.isNone:
-    raise ValueError.newException("Dependency has no constraint and no ref!")
-  elif dep.constr.isSome and dep.refr.isSome:
-    raise ValueError.newException("Dependency has both constraint and ref!")
+    raise ValueError.newException("Dependency has no constraint or ref!")
 
   if dep.refr.isSome:
     result &= "#" & dep.refr.unsafeGet
@@ -90,16 +91,6 @@ proc getFolderName*(src: PackageData): string =
       else:
         result.add(c)
     result.add(DirSep)
-
-
-# TODO: Consider tightening the relation between the `resolution` code and
-# the package data?
-proc declare*(
-  graph: DependencyGraph,
-  dependent, dependency: PackageData,
-  constr: FaeVerConstraint
-) =
-  graph.link(dependency.id, dependent.id, constr)
 
 
 proc toOriginCtx*(pkg: PackageData): OriginContext =
@@ -173,20 +164,8 @@ proc checkout*(
     quit("Failed to checkout package `" & pkg.id & "`", 1)
 
 
-proc checkout*(
-  pkg: Package,
-): bool =
-  ## Returns true if we successfully checked out the package.
-  ## Returns true if the package was already checked out.
-  if pkg.isPseudo:
-    assert pkg.refr != "", "Pseudoversioned packages must have a ref!"
-    checkout(pkg.data, pkg.refr)
-  else:
-    checkout(pkg.data, pkg.constr.lo)
-
-
 proc pseudoversion*(
   pkg: PackageData,
   refr: string
-): FaeVer =
+): Option[tuple[ver: FaeVer, isPseudo: bool]] =
   origins[pkg.origin].pseudoversion(pkg.toOriginCtx, refr)

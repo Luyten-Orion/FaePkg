@@ -212,7 +212,6 @@ proc fetchInfo(gUrl: Uri, dep: var DependencyV0) =
 
 proc requireToDep*(s: string): tuple[name: string, decl: DependencyV0] =
   result.decl.foreignPkgMngr = some(pmNimble)
-  result.decl.constr = FaeVerConstraint(lo: FaeVer.neg, hi: FaeVer.high)
 
   var idx = 0
 
@@ -248,7 +247,9 @@ proc requireToDep*(s: string): tuple[name: string, decl: DependencyV0] =
 
     # TODO: Commit to version proc
     result.decl.refr = some(s[idx..^1].strip())
+    return
 
+  var constr = FaeVerConstraint()
   while idx < s.len:
     var op = ""
 
@@ -271,49 +272,50 @@ proc requireToDep*(s: string): tuple[name: string, decl: DependencyV0] =
 
     case op
     of "==":
-      result.decl.constr = merge(result.decl.constr, FaeVerConstraint(
+      constr = merge(constr, FaeVerConstraint(
         lo: res.unsafeGet,
         hi: res.unsafeGet
       ))
     of ">":
-      result.decl.constr = merge(result.decl.constr, FaeVerConstraint(
+      constr = merge(constr, FaeVerConstraint(
         lo: res.unsafeGet,
         hi: FaeVer.high,
         excl: @[res.unsafeGet]
       ))
     of "<":
-      result.decl.constr = merge(result.decl.constr, FaeVerConstraint(
+      constr = merge(constr, FaeVerConstraint(
         lo: FaeVer.neg,
         hi: res.unsafeGet,
         excl: @[res.unsafeGet]
       ))
     of ">=":
-      result.decl.constr = merge(result.decl.constr, FaeVerConstraint(
+      constr = merge(constr, FaeVerConstraint(
         lo: res.unsafeGet,
         hi: FaeVer.high
       ))
     of "<=":
-      result.decl.constr = merge(result.decl.constr, FaeVerConstraint(
+      constr = merge(constr, FaeVerConstraint(
         lo: FaeVer.neg,
         hi: res.unsafeGet
       ))
     of "^=":
-      result.decl.constr = merge(result.decl.constr, FaeVerConstraint(
+      constr = merge(constr, FaeVerConstraint(
         lo: res.unsafeGet,
         hi: res.unsafeGet.nextMajor,
         excl: @[res.unsafeGet.nextMajor]
       ))
     of "~=":
-      result.decl.constr = merge(result.decl.constr, FaeVerConstraint(
+      constr = merge(constr, FaeVerConstraint(
         lo: res.unsafeGet,
         hi: res.unsafeGet.nextMinor,
         excl: @[res.unsafeGet.nextMinor]
       ))
 
-    if not result.decl.constr.isSatisfiable:
-      echo ("Constraint for dependency `$1` is unsatisfiable, specify it " &
-        "manually in your manifest!") % [result.name]
-      return
+  if not constr.isSatisfiable:
+    echo ("Constraint `$1` for dependency `$2` is unsatisfiable, specify it " &
+      "manually in your manifest!") % [$constr, result.name]
+
+  result.decl.constr = some(constr)
 
 
 proc getNimblePkgName(

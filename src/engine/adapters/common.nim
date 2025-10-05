@@ -24,7 +24,7 @@ type
     fetchRefrImpl*: (ctx: OriginContext, url: string, refr: string) -> bool
     fetchTagsImpl*: (ctx: OriginContext, url: string) -> bool
     resolveImpl*: (ctx: OriginContext, refr: string) -> Option[string]
-    pseudoversionImpl*: (ctx: OriginContext, refr: string) -> FaeVer
+    pseudoversionImpl*: (ctx: OriginContext, refr: string) -> Option[tuple[ver: FaeVer, isPseudo: bool]]
     checkoutImpl*: (ctx: OriginContext, refr: string) -> bool
     isVcs*: (ctx: OriginContext) -> bool
 
@@ -57,7 +57,7 @@ proc pseudoversion*(
   adapter: OriginAdapter,
   ctx: OriginContext,
   refr: string
-): FaeVer =
+): Option[tuple[ver: FaeVer, isPseudo: bool]] =
   ## NOTE: This is for git specifically, it may vary from adapter to adapter.
   ## Creates a pseudoversion using the given reference, usually the tag
   ## preceding a commit. Format:

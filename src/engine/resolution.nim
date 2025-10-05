@@ -21,9 +21,10 @@ type
     dependencyId*: string     ## The dependency ID.
     constr*: FaeVerConstraint ## The constraint on the dependency.
 
+  # Why not make this return a `FaeVer` rather than a `FaeVerConstraint`?
   NarrowedConstraint* = object
-    dependencyId*: string
-    constr*: FaeVerConstraint
+    id*: string               ## The ID of the package.
+    constr*: FaeVerConstraint ## The constraint on the package that we resolved.
 
   DependencyConflictSource* = object
     dependentId*: string      ## The dependent causing a conflict.
@@ -123,7 +124,7 @@ proc resolve*(
   if conflicts.len > 0: return ResolveResult.err(conflicts)
   ResolveResult.ok(toSeq(merges.pairs)
     .mapIt(NarrowedConstraint(
-      dependencyId: it[0],
+      id: it[0],
       constr: it[1].constr
     ))
   )
