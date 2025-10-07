@@ -7,14 +7,14 @@ from std/sugar import `->`
 
 import parsetoml
 
-import ../[
-  faever,
-  schema
-]
+import ../../logging
+import ../faever
+
 
 type
   OriginContext* = object
     targetDir*: string
+    logCtx*: LoggerContext
 
   # TODO: Maybe a context object would be useful...
   OriginAdapter* = object
@@ -28,13 +28,19 @@ type
     checkoutImpl*: (ctx: OriginContext, refr: string) -> bool
     isVcs*: (ctx: OriginContext) -> bool
 
-
 # Populated at startup, should never be modified afterwards... Can't enforce
 # that though
 var origins*: Table[string, OriginAdapter]
-
 # TODO: Could potentially implement a 'foreign' adapter, that we search for on
 # fae's startup? Similar to how shit like cargo works, when adding custom tools
+
+
+proc init*(
+  T: typedesc[OriginContext],
+  targetDir: string,
+  logCtx: LoggerContext
+): T =
+  T(targetDir: targetDir, logCtx: logCtx.with("origin"))
 
 
 proc clone*(adapter: OriginAdapter, ctx: OriginContext, url: string): bool =
@@ -53,6 +59,7 @@ proc resolve*(adapter: OriginAdapter, ctx: OriginContext, refr: string): Option[
   adapter.resolveImpl(ctx, refr)
 
 
+# TODO: Look at breaking this up into smaller functions...
 proc pseudoversion*(
   adapter: OriginAdapter,
   ctx: OriginContext,

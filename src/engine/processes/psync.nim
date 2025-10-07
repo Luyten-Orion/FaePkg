@@ -3,7 +3,6 @@ import std/[
   sequtils,
   strutils,
   options,
-  random,
   tables,
   sets,
   os
@@ -20,20 +19,10 @@ import ../[
   schema,
   faever
 ]
-import ./shared
-
-randomize()
-
-type
-  SyncProcessCtx* = ref object
-    tmpDir*, rootPkgId*: string
-    graph*: DependencyGraph
-    # ID -> Package
-    packages*: Packages
-    # Queue of packages that need to be resolved first before
-    # anything else... Needed for pseudoversion support and Nimble compat
-    # Dependent ID -> Dependencies
-    unresolved*: Table[string, seq[UnresolvedPackage]]
+import ./[
+  shared,
+  common
+]
 
 
 proc init(
@@ -111,22 +100,18 @@ proc registerDependency(
 
 proc parseManifest(
   ctx: SyncProcessCtx,
-  projPath: string,
   pkgData: PackageData,
   logCtx: LoggerContext
 ): ManifestV0 =
   let
     logCtx = logCtx.with("manifest-parse")
-    pkgPath = relativePath(
-      projPath,
-      projPath / ".skull" / "packages" / pkgData.fullLoc()
-    )
+    pkgPath = relativePath(pkgData.fullLoc(), ctx.projPath)
 
   try:
-    ManifestV0.fromToml(parseFile(pkgPath / "package.skull.toml"))
+    ManifestV0.fromToml(parseFile(pkgData.fullLoc() / "package.skull.toml"))
   except IOError:
     logCtx.error("Failed to open `$1`! Does it exist?" % 
-      pkgPath / "package.skull.toml")
+      (pkgPath / "package.skull.toml"))
     quit(1)
   except TomlError:
     logCtx.error(
@@ -138,7 +123,6 @@ proc parseManifest(
 
 proc initRootPackage(
   ctx: SyncProcessCtx,
-  projPath: string,
   logCtx: LoggerContext
 ): string =
   ## Initialises the root package and returns its ID
@@ -148,7 +132,7 @@ proc initRootPackage(
     pkgData: PackageData
 
   try:
-    rMan = ManifestV0.fromToml(parseFile(projPath / "package.skull.toml"))
+    rMan = ManifestV0.fromToml(parseFile(ctx.projPath / "package.skull.toml"))
   except IOError:
     logCtx.error("Failed to open `package.skull.toml`!")
     quit(1)
@@ -159,29 +143,25 @@ proc initRootPackage(
     quit(1)
 
   result = rMan.package.name
-  pkgData = PackageData(id: result, diskLoc: projPath)
-  let originCtx = pkgData.toOriginCtx
+  pkgData = PackageData(id: result, diskLoc: ctx.projPath)
+  let originCtx = pkgData.toOriginCtx(logCtx)
 
   for origin in origins.keys:
     if origins[origin].isVcs(originCtx):
       pkgData.origin = origin
       break
 
+  let resolvedVer = rootVersionDetector(pkgData, originCtx, logCtx)
+
   ctx.packages[result] = Package.init(
     pkgData,
-    FaeVerConstraint(lo: rootVersionDetector(pkgData, originCtx, logCtx)),
+    # Force exact match
+    FaeVerConstraint(lo: resolvedVer, hi: resolvedVer),
     true
   )
 
   for dependency in rMan.dependencies.values:
     registerDependency(ctx, result, dependency, logCtx)
-
-
-proc randomSuffix(): string =
-  const ValidChars = Letters + Digits
-  for i in 0..<8:
-    result.add(ValidChars.sample())
-
 
 
 proc resolvePackage*(
@@ -215,8 +195,8 @@ proc resolvePackage*(
 
     if samePkgs.len > 0:
       for samePkgId in samePkgs:
-        getPkg(samePkgId).data.fetch()
-        let pseuRes = getPkg(samePkgId).data.pseudoversion(unresRefr)
+        getPkg(samePkgId).data.fetch(logCtx)
+        let pseuRes = getPkg(samePkgId).data.pseudoversion(logCtx, unresRefr)
         if pseuRes.isNone:
           logCtx.error(
             "Failed to resolve `$1` because it has no commit `$2`" %
@@ -225,22 +205,21 @@ proc resolvePackage*(
           quit(1)
         
         pseuVer = pseuRes.unsafeGet().ver
-        let parts = pseuVer.prerelease.rsplit('.', 2)
     
     else:
       # Handle cloning ourselves
       unresPkg.data.diskLoc = (
-        ctx.tmpDir / "packages" / unresPkg.data.getFolderName() & "_" & randomSuffix()
+        ctx.tmpDir / "packages" / randomSuffix(unresPkg.data.getFolderName())
       )
 
-      unresPkg.data.clone()
-      if not unresPkg.data.checkout(unresRefr):
+      unresPkg.data.clone(logCtx)
+      if not unresPkg.data.checkout(logCtx, unresRefr):
         logCtx.error("Failed to resolve `$1` because it has no commit `$2`" % [
           unresPkg.data.id, unresRefr
         ])
         quit(1)
   
-      let pseuRes = unresPkg.data.pseudoversion(unresRefr)
+      let pseuRes = unresPkg.data.pseudoversion(logCtx, unresRefr)
       if pseuRes.isNone:
         logCtx.error(
           "Failed to resolve `$1` because it has no commit `$2`" %
@@ -249,14 +228,6 @@ proc resolvePackage*(
         quit(1)
       
       pseuVer = pseuRes.unsafeGet().ver
-
-    let parts = pseuVer.prerelease.rsplit('.', 2)
-    if parts.len < 2 or parts[1] == "19700101010000":
-      logCtx.error(
-        "Failed to resolve `$1` because it has no commit `$2`" %
-        [unresPkg.data.id, unresRefr]
-      )
-      quit(1)
 
     result.id = idBase & (if pseuVer.major > 0: "@" & $pseuVer.major else: "")
     unresPkg.data.id = result.id
@@ -288,14 +259,14 @@ proc resolvePackage*(
     var samePkgs = getSamePkgs(unresPkg.data.id)
 
     for samePkgId in samePkgs:
-      getPkg(samePkgId).data.fetch()
+      getPkg(samePkgId).data.fetch(logCtx)
       let adapter = origins[getPkg(samePkgId).data.origin]
       var resRef = adapter.resolve(
-        getPkg(samePkgId).data.toOriginCtx, "v" & $loVer
+        getPkg(samePkgId).data.toOriginCtx(logCtx), "v" & $loVer
       )
       if resRef.isNone:
         resRef = adapter.resolve(
-          getPkg(samePkgId).data.toOriginCtx, $loVer
+          getPkg(samePkgId).data.toOriginCtx(logCtx), $loVer
         )
 
       if resRef.isNone:
@@ -316,11 +287,11 @@ proc resolvePackage*(
       )
       result.constr = constr
       unresPkg.data.diskLoc = (
-        ctx.tmpDir / "packages" / unresPkg.data.getFolderName() & "_" & randomSuffix()
+        ctx.tmpDir / "packages" / randomSuffix(unresPkg.data.getFolderName())
       )
 
-      unresPkg.data.clone()
-      if not unresPkg.data.checkout(loVer):
+      unresPkg.data.clone(logCtx)
+      if not unresPkg.data.checkout(logCtx, loVer):
         logCtx.error(
           "Failed to resolve `$1` because it has no version `$2`" %
           [unresPkg.data.id, $loVer]
@@ -404,7 +375,6 @@ proc getCommitFromPseuVer(ver: FaeVer): Option[string] =
 
 
 proc advanceResolution*(
-  projPath: string,
   ctx: SyncProcessCtx,
   logCtx: LoggerContext,
 ): bool =
@@ -412,10 +382,19 @@ proc advanceResolution*(
   # TODO: Maybe make it so we don't rebuild a graph's dependencies if it hasn't
   # changed?
   result = true
-  for pkgs in ctx.unresolved.values:
-    if pkgs.len > 0: return false
+  block:
+    var i = 0
+    for pkgs in ctx.unresolved.values: i += pkgs.len
+    if i == 0: return false
 
-  let logCtx = logCtx.with("resolution-cycle")
+  template pkgSnapshot: HashSet[tuple[id: string, constr: FaeVerConstraint]] =
+    toSeq(ctx.packages.values).mapIt((it.data.id, it.constr)).toHashSet()
+
+  let
+    logCtx = logCtx.with("resolution-cycle")
+    versionSnapshot = pkgSnapshot()
+
+  logCtx.trace("Snapshot ->\n" & $versionSnapshot)
 
   template getPkg(id: string): var Package = ctx.packages[id]
 
@@ -427,7 +406,7 @@ proc advanceResolution*(
         let unresPkg = ctx.unresolved[dependentId].pop()
         let (dependencyId, version) = ctx.resolvePackage(unresPkg, logCtx)
         if getPkg(dependencyId).data.diskLoc.startsWith(ctx.tmpDir):
-          let permDir = projPath / ".skull" / "packages" /
+          let permDir = ctx.projPath / ".skull" / "packages" /
             getPkg(dependencyId).data.getFolderName()
           try:
             moveDir(getPkg(dependencyId).data.diskLoc, permDir)
@@ -452,6 +431,8 @@ proc advanceResolution*(
           getPkg(dependencyId).data.diskLoc = permDir
         ctx.graph.link(dependentId, dependencyId, version)
 
+    ctx.unresolved.clear()
+
     let resolveRes = ctx.graph.resolve()
     if resolveRes.isErr:
       logCtx.error(conflictReport(resolveRes.error))
@@ -467,17 +448,19 @@ proc advanceResolution*(
       if refr.isSome:
         # Keep it up to date
         getPkg(pkg.id).refr = refr.unsafeGet()
-        success = getPkg(pkg.id).data.checkout(refr.unsafeGet())
+        success = getPkg(pkg.id).data.checkout(logCtx, refr.unsafeGet())
       else:
         # Maybe instead grab the fully qualified commit? Hmm
         getPkg(pkg.id).refr = ""
-        success = getPkg(pkg.id).data.checkout(ver)
+        success = getPkg(pkg.id).data.checkout(logCtx, ver)
 
       if not success:
         logCtx.error("Failed to checkout package `" & pkg.id & "`, can't proceed!")
         quit(1)
 
   block SynchronisationStage:
+    let unchanged = toSeq(versionSnapshot - pkgSnapshot()).mapIt(it[0])
+
     block UnlinkTree:
       for pkgId in ctx.graph.edges.keys:
         if pkgId == ctx.rootPkgId: continue
@@ -487,18 +470,26 @@ proc advanceResolution*(
       if pkg.data.foreignPm.isSome:
         case pkg.data.foreignPm.unsafeGet():
         of PkgMngrKind.pmNimble:
-          once: initNimbleCompat(projPath)
-          initManifestForNimblePkg(projPath, pkg.data)
+          once: initNimbleCompat(ctx.projPath)
+          ctx.initManifestForNimblePkg(pkg.data, logCtx)
         
-      let pkgMan = parseManifest(ctx, projPath, pkg.data, logCtx)
+      let pkgMan = ctx.parseManifest(pkg.data, logCtx)
       for dep in pkgMan.dependencies.values:
+        if dep.refr.isSome and (pkg.refr == dep.refr.unsafeGet):
+          continue
+        elif dep.toId notin unchanged and dep.toId in ctx.packages:
+          continue
         ctx.registerDependency(pkg.data.id, dep, logCtx)
 
 
 proc synchronise*(projPath: string, logCtx: LoggerContext) =
   let logCtx = logCtx.with("sync")
   # TODO: Add override for the temporary directory?
-  var ctx = SyncProcessCtx(tmpDir: getFaeTempDir(logCtx))
+  var ctx = SyncProcessCtx(
+    projPath: projPath,
+    tmpDir: getFaeTempDir(logCtx),
+    graph: DependencyGraph(),
+  )
 
   try:
     removeDir(ctx.tmpDir)
@@ -507,14 +498,14 @@ proc synchronise*(projPath: string, logCtx: LoggerContext) =
     logCtx.error("Unable to create the Fae temporary directory!")
     quit(1)
 
-  if not dirExists(projPath):
-    logCtx.error("`$1` is not a valid project directory!" % projPath)
+  if not dirExists(ctx.projPath):
+    logCtx.error("`$1` is not a valid project directory!" % ctx.projPath)
     quit(1)
-  createDir(projPath / ".skull" / "packages")
+  createDir(ctx.projPath / ".skull" / "packages")
 
-  ctx.rootPkgId = initRootPackage(ctx, projPath, logCtx)
+  ctx.rootPkgId = ctx.initRootPackage(logCtx)
   #template rootPkg: var Package = ctx.packages[ctx.rootPkgId]
 
   var resolveGraph = true
   while resolveGraph:
-    resolveGraph = advanceResolution(projPath, ctx, logCtx)
+    resolveGraph = ctx.advanceResolution(logCtx)

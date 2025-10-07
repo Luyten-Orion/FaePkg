@@ -23,8 +23,12 @@ import experimental/[
 
 import parsetoml
 
+import ../../logging
 import ../private/tomlhelpers
-import ../processes/shared
+import ../processes/[
+  shared,
+  common
+]
 import ../[
   adapters,
   faever,
@@ -249,7 +253,7 @@ proc requireToDep*(s: string): tuple[name: string, decl: DependencyV0] =
     result.decl.refr = some(s[idx..^1].strip())
     return
 
-  var constr = FaeVerConstraint()
+  var constr = FaeVerConstraint(hi: FaeVer.high)
   while idx < s.len:
     var op = ""
 
@@ -424,8 +428,9 @@ proc `?`*(tbl: Table | OrderedTable): TomlValueRef =
 
 
 proc initManifestForNimblePkg*(
-  projPath: string,
-  pkg: PackageData
+  ctx: SyncProcessCtx,
+  pkg: PackageData,
+  logCtx: LoggerContext
 ) =
   let nbMan = parseNimble(pkg.fullLoc / getNimblePkgName(pkg) & ".nimble")
 
@@ -447,7 +452,7 @@ proc initManifestForNimblePkg*(
       else:
         fetchInfo(parseUri(name), deps[name])
 
-    let expanded = getNimbleExpandedNames(projPath, toSeq(unexpanded.keys))
+    let expanded = getNimbleExpandedNames(ctx.projPath, toSeq(unexpanded.keys))
 
     template keysToHashSet[U](tbl: Table[string, U]): HashSet[string] =
       toSeq(tbl.keys).toHashSet
@@ -463,9 +468,11 @@ proc initManifestForNimblePkg*(
 
   for name, dep in deps:
     var pkgData = dep.toPkgData()
-    pkgData.diskLoc = projPath / ".skull" / "packages" / pkgData.getFolderName
+    pkgData.diskLoc = (
+      ctx.tmpDir / "nimble-compat" / randomSuffix(pkgData.getFolderName)
+    )
     createDir(pkgData.diskLoc)
-    pkgData.clone()
+    pkgData.clone(logCtx)
     dependencies[pkgData.getNimblePkgName()] = dep
 
 
