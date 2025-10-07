@@ -1,0 +1,17 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Fae Sync",
+      "type": "gdb",
+      "preLaunchTask": "Build Fae Debug Bin",
+      "request": "launch",
+      "target": "/tmp/fae-debug-bin",
+      "arguments": "sync",
+      "cwd": "${workspaceRoot}"
+    }
+  ]
+}
