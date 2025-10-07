@@ -22,7 +22,6 @@ import ../engine/adapters/[
   common,
   git
 ]
-import ../engine/private/tomlhelpers
 
 
 import "."/[
@@ -57,7 +56,7 @@ cli.flagBuilder()
   .describe("Set the log level (default: info)")
   .parser(string, (opt, val, var args) => (
     try:
-      args.logLevel = parseEnum[LogLevel](val)
+      args.logLevel = parseEnum[LogLevel](val.toUpperAscii())
     except ValueError:
       const ValidLogLevels = ["trace", "debug", "info", "warn", "error"]
         .join("`, `")

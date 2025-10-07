@@ -21,4 +21,7 @@ let logCtx = logger.with("fae-cli")
 # TODO: We should also warn users if there are dependencies that seem identical
 # with different casing, since if that's the case, they *may* be the same...
 proc syncCmd*(args: FaeArgs) =
+  logger.addCallback(LogCallback.init(
+    consoleLogger(showStack=true), @[filterLogLevel(args.logLevel)]
+  ))
   synchronise(args.projPath, logCtx)
