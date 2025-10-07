@@ -26,8 +26,7 @@ type
     voEq = "=="
     voLt = "<"
     voLte = "<="
-    # No greater than, since we enforce that the lower bound is inclusive
-    #voGt = ">"
+    voGt = ">"
     voGte = ">="
     voCaret = "^"
     voTilde = "~"
@@ -199,14 +198,16 @@ proc parse*(T: typedesc[FaeVer], s: string): FaeVerParseResult =
   parse(FaeVer, s, (var i = 0; i))
 
 
+template isSatisfiable*(c: FaeVerConstraint): bool =
+  c.lo < c.hi or (c.lo == c.hi and c.lo notin c.excl)
+
+
 proc merge*(a, b: FaeVerConstraint): FaeVerConstraint =
   ## Tries to merge the constraints of `b` into `a`, returning the result
   (result.lo, result.hi) = (max(a.lo, b.lo), min(a.hi, b.hi))
-  result.excl = (a.excl & b.excl).filterIt(it in result.lo..result.hi)
-
-
-template isSatisfiable*(c: FaeVerConstraint): bool =
-  c.lo < c.hi or (c.lo == c.hi and c.lo notin c.excl)
+  result.excl =
+    if not result.isSatisfiable: a.excl & b.excl
+    else: (a.excl & b.excl).filterIt(it in result.lo..result.hi)
 
 
 proc nextMajor*(v: FaeVer): FaeVer = FaeVer(major: v.major + 1)
@@ -262,8 +263,8 @@ proc parse*(T: typedesc[FaeVerConstraint], s: string): T =
         of voLt:
           FaeVerConstraint(
           lo: FaeVer.neg, hi: constr.ver, excl: @[constr.ver])
-        #of voGt: FaeVerConstraint(
-        #  lo: constr.ver, hi: FaeVer.high, excl: @[constr.ver])
+        of voGt: FaeVerConstraint(
+          lo: constr.ver, hi: FaeVer.high, excl: @[constr.ver])
         of voLte: FaeVerConstraint(lo: FaeVer.neg, hi: constr.ver)
         of voGte: FaeVerConstraint(lo: constr.ver, hi: FaeVer.high)
         of voCaret: FaeVerConstraint(
@@ -291,39 +292,39 @@ proc `$`*(s: FaeVer): string =
     result &= "+" & s.buildMetadata
 
 
-proc `$`*(s: FaeVerConstraint): string =
+proc `$`*(c: FaeVerConstraint): string =
   var parts: seq[string]
 
-  if not s.isSatisfiable: parts.add "*"
+  if not c.isSatisfiable:
+    parts.add("*")
 
-  block:
-    if s.lo == s.hi:
-      parts.add $s.lo
+  if c.lo == c.hi:
+    parts.add("==" & $c.lo)
+  else:
+    if c.lo == FaeVer.neg and c.hi == FaeVer.high:
+      return "*"
+
+    # Detect caret range
+    if c.hi == c.lo.nextMajor and c.hi in c.excl:
+      parts.add("^" & $c.lo)
+
+    # Detect tilde range
+    elif c.hi == c.lo.nextMinor and c.hi in c.excl:
+      parts.add("~" & $c.lo)
+
+    # General case
     else:
-      if s.lo == FaeVer.neg and s.hi == FaeVer.high:
-        break
-    
-      if s.lo == s.hi:
-        parts.add "==" & $s.lo
-        break
-
-      if s.lo in s.excl:
-        parts.add ">" & $s.lo
-      else:
-        if s.hi == s.lo.nextMajor and s.hi notin s.excl:
-          parts.add "^" & $s.lo
-          break
-        elif s.hi == s.lo.nextMinor and s.hi notin s.excl:
-          parts.add "~" & $s.lo
-          break
+      if c.lo != FaeVer.neg:
+        if c.lo in c.excl:
+          parts.add(">" & $c.lo)
         else:
-          parts.add ">=" & $s.lo
+          parts.add(">=" & $c.lo)
 
-      if s.hi != FaeVer.high:
-        if s.hi in s.excl:
-          parts.add "<" & $s.hi
+      if c.hi != FaeVer.high:
+        if c.hi in c.excl:
+          parts.add("<" & $c.hi)
         else:
-          parts.add "<=" & $s.hi
+          parts.add("<=" & $c.hi)
 
   parts.join(",")
 
