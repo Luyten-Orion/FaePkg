@@ -214,7 +214,7 @@ proc fetchInfo(gUrl: Uri, dep: var DependencyV0) =
       break
 
 
-proc requireToDep*(s: string): tuple[name: string, decl: DependencyV0] =
+proc requireToDep*(logCtx: LoggerContext, s: string): tuple[name: string, decl: DependencyV0] =
   result.decl.foreignPkgMngr = some(pmNimble)
 
   var idx = 0
@@ -236,15 +236,19 @@ proc requireToDep*(s: string): tuple[name: string, decl: DependencyV0] =
   result.name = result.name.strip()
 
   if idx >= s.strip(leading=false).len:
-    echo ("Nimble dependency `$1` has no version constraint," &
-      "make sure to specify a version in your manifest otherwise" &
-      "resolution *will* fail!") % [result.name]
+    logCtx.warn [
+      "Nimble dependency `$1` has no version constraint, ",
+      "make sure to specify a version in your manifest otherwise ",
+      "resolution *will* fail!"
+    ].join("") % result.name
     return
 
   if s[idx] == '#':
     if idx + 1 >= s.len:
-      echo ("Was expected a revision for dependency `$1` but got nothing") %
-        [result.name]
+      logCtx.warn [
+        "Was expected a revision for dependency `$1` but got nothing, ",
+        "defaulting to HEAD"
+      ].join("") % result.name
       return
 
     inc idx
@@ -262,16 +266,20 @@ proc requireToDep*(s: string): tuple[name: string, decl: DependencyV0] =
     idx += s.parseWhile(op, NimbleReqOpChars, idx)
 
     if op notin NimbleOps:
-      echo ("Unknown operator `$1` for dependency `$2`, specify it " &
-        "manually in your manifest!") % [op, result.name]
+      logCtx.warn([
+        "Unknown operator `$1` for dependency `$2`, specify it ",
+        "manually in your manifest!"
+      ].join("") % [op, result.name])
       return
 
     idx += s.skipWhitespace(idx)
     let res = FaeVer.parse(s, idx)
 
     if res.isErr:
-      echo ("Malformed version constraint for dependency `$1`, specify it " &
-        "manually in your manifest!") % [result.name]
+      logCtx.warn([
+        "Malformed version constraint for dependency `$1`, specify it ",
+        "manually in your manifest!"
+      ].join("") % [result.name])
       return
 
     case op
@@ -284,40 +292,42 @@ proc requireToDep*(s: string): tuple[name: string, decl: DependencyV0] =
       constr = merge(constr, FaeVerConstraint(
         lo: res.unsafeGet,
         hi: FaeVer.high,
-        excl: @[res.unsafeGet]
+        excl: @[res.unsafeGet()]
       ))
     of "<":
       constr = merge(constr, FaeVerConstraint(
-        lo: FaeVer.neg,
-        hi: res.unsafeGet,
-        excl: @[res.unsafeGet]
+        lo: FaeVer.neg(),
+        hi: res.unsafeGet(),
+        excl: @[res.unsafeGet()]
       ))
     of ">=":
       constr = merge(constr, FaeVerConstraint(
-        lo: res.unsafeGet,
-        hi: FaeVer.high
+        lo: res.unsafeGet(),
+        hi: FaeVer.high()
       ))
     of "<=":
       constr = merge(constr, FaeVerConstraint(
-        lo: FaeVer.neg,
-        hi: res.unsafeGet
+        lo: FaeVer.neg(),
+        hi: res.unsafeGet()
       ))
     of "^=":
       constr = merge(constr, FaeVerConstraint(
-        lo: res.unsafeGet,
-        hi: res.unsafeGet.nextMajor,
-        excl: @[res.unsafeGet.nextMajor]
+        lo: res.unsafeGet(),
+        hi: res.unsafeGet().nextMajor(),
+        excl: @[res.unsafeGet().nextMajor()]
       ))
     of "~=":
       constr = merge(constr, FaeVerConstraint(
-        lo: res.unsafeGet,
-        hi: res.unsafeGet.nextMinor,
-        excl: @[res.unsafeGet.nextMinor]
+        lo: res.unsafeGet(),
+        hi: res.unsafeGet().nextMinor(),
+        excl: @[res.unsafeGet().nextMinor()]
       ))
 
-  if not constr.isSatisfiable:
-    echo ("Constraint `$1` for dependency `$2` is unsatisfiable, specify it " &
-      "manually in your manifest!") % [$constr, result.name]
+  if not constr.isSatisfiable():
+    logCtx.warn([
+      "Constraint `$1` for dependency `$2` is unsatisfiable, specify it ",
+      "manually in your manifest!"
+    ].join("") % [$constr, result.name])
 
   result.decl.constr = some(constr)
 
@@ -434,7 +444,7 @@ proc initManifestForNimblePkg*(
 ) =
   let nbMan = parseNimble(pkg.fullLoc / getNimblePkgName(pkg) & ".nimble")
 
-  var deps = nbMan.requiresData.map(requireToDep).toTable
+  var deps = nbMan.requiresData.mapIt(requireToDep(logCtx, it)).toTable
 
   for name in ["nim", "compiler"]:
     # TODO: Warn if the version is greater than 1.6, since Skull is a hardfork
@@ -467,7 +477,7 @@ proc initManifestForNimblePkg*(
   var dependencies: Table[string, DependencyV0]
 
   for name, dep in deps:
-    var pkgData = dep.toPkgData()
+    var pkgData = dep.toPkgData(logCtx)
     pkgData.diskLoc = (
       ctx.tmpDir / "nimble-compat" / randomSuffix(pkgData.getFolderName)
     )

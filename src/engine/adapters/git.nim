@@ -105,6 +105,7 @@ proc gitPseudoversionImpl*(
 
   var tag: FaeVer
   let commitHash = block:
+    var outStr = ""
     var res = gitExec(logCtx, 
       ctx.targetDir,
       ["describe", "--match", "v[0-9]*.[0-9]*.[0-9]*", "--abbrev=12", refr]
@@ -119,7 +120,9 @@ proc gitPseudoversionImpl*(
       logCtx.trace("Output ->\n$1" % res.output)
 
     if res.code != 0:
-      return none(typeof(result).T)
+      outStr = "0.0.0"
+    else:
+      outStr = res.output
 
     let parseRes = FaeVer.parse(
       if res.output.startsWith("v"): res.output[1..^1] else: res.output

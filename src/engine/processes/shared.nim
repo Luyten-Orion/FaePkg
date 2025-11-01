@@ -51,7 +51,7 @@ template fullLoc*(pkg: PackageData): string =
 
 # TODO: Figure out a way to gently enforce package IDs having the major version
 # suffixed. Possibly add git hooks?
-proc toId*(dep: DependencyV0): string =
+proc toId*(dep: DependencyV0, logCtx: LoggerContext): string =
   ## If `dep.refr` is set, we use that to generate an ID rather than
   ## `dep.constr`.
   result = [dep.src, dep.subdir]
@@ -60,7 +60,8 @@ proc toId*(dep: DependencyV0): string =
 
   # TODO: Move validation logic to a specific `validate` function for schema
   if dep.constr.isNone and dep.refr.isNone:
-    raise ValueError.newException("Dependency has no constraint or ref!")
+    logCtx.error("No version constraint or ref found for dependency `$1`" % dep.src)
+    quit(1)
 
   if dep.refr.isSome:
     result &= "#" & dep.refr.unsafeGet
@@ -69,9 +70,9 @@ proc toId*(dep: DependencyV0): string =
       result &= "@" & $dep.constr
 
 
-proc toPkgData*(dep: DependencyV0): PackageData =
+proc toPkgData*(dep: DependencyV0, logCtx: LoggerContext): PackageData =
   PackageData(
-    id: dep.toId,
+    id: dep.toId(logCtx),
     origin: dep.origin,
     loc: parseUri(&"{dep.scheme}://{dep.src}"),
     subdir: dep.subdir,
@@ -171,9 +172,10 @@ proc checkout*(
   # We should prefer `v` prefixed versions, we have to support non-prefixed
   # versions for nimble, but if I can move that behaviour out of this code,
   # then it will be done
-  if not adapter.fetch(originCtx, $pkg.loc, refr):
-    logCtx.error("Failed to fetch package `" & pkg.id & "`")
-    return false
+  #if not adapter.fetch(originCtx, $pkg.loc, refr):
+  #  logCtx.error("Failed to fetch package `" & pkg.id & "`")
+  #  return false
+  discard adapter.fetch(originCtx, $pkg.loc, refr)
 
   if not adapter.checkout(originCtx, refr):
     logCtx.error("Failed to checkout package `" & pkg.id & "`")

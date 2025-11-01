@@ -89,7 +89,7 @@ proc registerDependency(
     quit(1)
 
   var unresPkg = UnresolvedPackage(
-    data: dependency.toPkgData,
+    data: dependency.toPkgData(logCtx),
     refr: dependency.refr,
     constr: dependency.constr,
     foreignPm: dependency.foreignPkgMngr
@@ -292,11 +292,20 @@ proc resolvePackage*(
 
       unresPkg.data.clone(logCtx)
       if not unresPkg.data.checkout(logCtx, loVer):
-        logCtx.error(
-          "Failed to resolve `$1` because it has no version `$2`" %
-          [unresPkg.data.id, $loVer]
-        )
-        quit(1)
+        if unresPkg.foreignPm.isSome and unresPkg.foreignPm.unsafeGet() == PkgMngrKind.pmNimble:
+          logCtx.warn(
+            [
+              "Failed to resolve `$1` because it has no version `$2`. ",
+              "You should override this with a commit tag."
+            ].join("") %
+            [unresPkg.data.id, $loVer]
+          )
+        else:
+          logCtx.error(
+            "Failed to resolve `$1` because it has no version `$2`" %
+            [unresPkg.data.id, $loVer]
+          )
+          quit(1)
 
       ctx.packages[result.id] = Package.init(
         unresPkg.data,
@@ -444,17 +453,19 @@ proc advanceResolution*(
       let
         ver = pkg.constr.lo
         refr = ver.getCommitFromPseuVer()
-      var success: bool
+      var checkedOut: bool
       if refr.isSome:
         # Keep it up to date
         getPkg(pkg.id).refr = refr.unsafeGet()
-        success = getPkg(pkg.id).data.checkout(logCtx, refr.unsafeGet())
+        checkedOut = getPkg(pkg.id).data.checkout(logCtx, refr.unsafeGet())
       else:
         # Maybe instead grab the fully qualified commit? Hmm
         getPkg(pkg.id).refr = ""
-        success = getPkg(pkg.id).data.checkout(logCtx, ver)
+        checkedOut = getPkg(pkg.id).data.checkout(logCtx, ver)
 
-      if not success:
+      if getPkg(pkg.id).data.foreignPm.isSome and getPkg(pkg.id).data.foreignPm.unsafeGet() == PkgMngrKind.pmNimble:
+        discard
+      elif not checkedOut:
         logCtx.error("Failed to checkout package `" & pkg.id & "`, can't proceed!")
         quit(1)
 
@@ -462,11 +473,11 @@ proc advanceResolution*(
     let unchanged = toSeq(versionSnapshot - pkgSnapshot()).mapIt(it[0])
 
     block UnlinkTree:
-      for pkgId in ctx.graph.edges.keys:
+      for pkgId in toSeq(ctx.graph.edges.keys):
         if pkgId == ctx.rootPkgId: continue
         ctx.graph.unlinkAllDepsOf(pkgId)
 
-    for pkg in ctx.packages.values:
+    for pkg in toSeq(ctx.packages.values):
       if pkg.data.foreignPm.isSome:
         case pkg.data.foreignPm.unsafeGet():
         of PkgMngrKind.pmNimble:
@@ -477,7 +488,7 @@ proc advanceResolution*(
       for dep in pkgMan.dependencies.values:
         if dep.refr.isSome and (pkg.refr == dep.refr.unsafeGet):
           continue
-        elif dep.toId notin unchanged and dep.toId in ctx.packages:
+        elif dep.toId(logCtx) notin unchanged and dep.toId(logCtx) in ctx.packages:
           continue
         ctx.registerDependency(pkg.data.id, dep, logCtx)
 
