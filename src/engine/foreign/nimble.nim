@@ -238,9 +238,9 @@ proc requireToDep*(logCtx: LoggerContext, s: string): tuple[name: string, decl: 
   if idx >= s.strip(leading=false).len:
     logCtx.warn [
       "Nimble dependency `$1` has no version constraint, ",
-      "make sure to specify a version in your manifest otherwise ",
-      "resolution *will* fail!"
+      "resolution will default to HEAD!"
     ].join("") % result.name
+    result.decl.refr = some("HEAD")
     return
 
   if s[idx] == '#':
@@ -446,12 +446,12 @@ proc initManifestForNimblePkg*(
 
   var deps = nbMan.requiresData.mapIt(requireToDep(logCtx, it)).toTable
 
+  # Remove Nim and Compiler dependencies, as they are system-level
   for name in ["nim", "compiler"]:
-    # TODO: Warn if the version is greater than 1.6, since Skull is a hardfork
-    # of 1.6, and even then there's no compatibility guarantee
     if name in deps:
       deps.del(name)
 
+  # Phase 1: Expand package names to full source URIs (relies on packages.json lookup)
   block:
     var unexpanded: Table[string, DependencyV0]
 
@@ -460,6 +460,7 @@ proc initManifestForNimblePkg*(
         unexpanded[name] = deps[name]
         deps.del(name)
       else:
+        # Resolve the URL to get origin/scheme/src/etc.
         fetchInfo(parseUri(name), deps[name])
 
     let expanded = getNimbleExpandedNames(ctx.projPath, toSeq(unexpanded.keys))
@@ -471,19 +472,44 @@ proc initManifestForNimblePkg*(
     if missing.len > 0: quit("Missing dependencies: " & $missing, 1)
 
     for name, url in expanded:
-      deps[url] = unexpanded[name]
-      fetchInfo(parseUri(url), deps[url])
+      # Copy the version/ref constraint data from the original entry
+      var dep = unexpanded[name]
+      
+      # Resolve the URL to get the full source metadata (origin, scheme, src)
+      fetchInfo(parseUri(url), dep)
+      
+      # Now use the final URL as the key
+      deps[url] = dep 
 
+  # Phase 2: Temporary I/O to get the Nimble Package Name (required for manifest key)
   var dependencies: Table[string, DependencyV0]
 
   for name, dep in deps:
     var pkgData = dep.toPkgData(logCtx)
-    pkgData.diskLoc = (
-      ctx.tmpDir / "nimble-compat" / randomSuffix(pkgData.getFolderName)
-    )
-    createDir(pkgData.diskLoc)
-    pkgData.clone(logCtx)
-    dependencies[pkgData.getNimblePkgName()] = dep
+    
+    # --- 🛑 TEMPORARY METADATA CLONING (I/O Compromise) ---
+    let tmpDir = ctx.tmpDir / "nimble-meta" / randomSuffix(pkgData.getFolderName())
+    pkgData.diskLoc = tmpDir
+    
+    # Ensure temporary directory exists
+    createDir(pkgData.diskLoc) 
+    
+    # Clone the repo to read its name
+    logCtx.trace("Cloning sub-dependency `$1` temporarily to read its Nimble name." % pkgData.id)
+    pkgData.clone(logCtx) 
+    
+    # Read the required name from the cloned repo
+    let nimbleName = getNimblePkgName(pkgData)
+    
+    # Cleanup temporary files IMMEDIATELY
+    try:
+      removeDir(tmpDir)
+    except OSError:
+      logCtx.warn("Failed to clean up temporary nimble metadata clone: " & tmpDir)
+      
+    # --- END TEMPORARY CLONING ---
+
+    dependencies[nimbleName] = dep 
 
 
   let m = ManifestV0(
@@ -492,5 +518,4 @@ proc initManifestForNimblePkg*(
     dependencies: dependencies
   )
 
-  # TODO: Make TOML serialiser for our types
   writeFile(pkg.fullLoc / "package.skull.toml", m.dumpToml())

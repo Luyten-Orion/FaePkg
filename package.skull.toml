@@ -4,17 +4,6 @@ format = 0
 # Must be the URI (without the scheme) of the package.
 name = "github.com/luyten-orion/faepkg"
 
-# All information not directly needed for the PM goes here, we don't have
-# a registry, nor do we plan on one, so any extra data is simply another burden.
-#[metadata]
-#description   = "A new package manager for Skull!"
-# SPDX identifier
-#license       = "MIT"
-#documentation = "https://your.docs.url/here"
-#source        = "https://github.com/Luyten-Orion/FaePkg"
-#homepage      = "https://github.com/Luyten-Orion/FaePkg"
-#tags = ["nimskull", "package-manager", "cli"]
-
 [dependencies.parsetoml]
 src        = "github.com/nimparsers/parsetoml"
 origin     = "git"

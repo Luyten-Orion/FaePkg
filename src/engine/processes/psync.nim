@@ -164,157 +164,6 @@ proc initRootPackage(
     registerDependency(ctx, result, dependency, logCtx)
 
 
-proc resolvePackage*(
-  ctx: SyncProcessCtx,
-  unresPkg: UnresolvedPackage,
-  logCtx: LoggerContext
-): tuple[id: string, constr: FaeVerConstraint] =
-  let logCtx = logCtx.with("unresolved-resolver")
-  var unresPkg = unresPkg
-
-  template getPkg(id: string): var Package = ctx.packages[id]
-  template getSamePkgs(idBase): seq[string] =
-    toSeq(ctx.packages.pairs).filterIt(
-      it[1].data.id.startsWith(idBase) and it[1].data.loc != unresPkg.data.loc
-    ).mapIt(it[0])
-
-  if '#' in unresPkg.data.id:
-    # TODO: Proper guard here? Though this case should never happen
-    if unresPkg.refr.isNone:
-      logCtx.error(
-        "Package `$1` has no reference but reserved character `#` is in its ID!" % unresPkg.data.id
-      )
-      quit(1)
-
-    let
-      unresRefr = unresPkg.refr.unsafeGet()
-      idBase = unresPkg.data.id.rsplit('#', 1)[0]
-    var
-      pseuVer = FaeVer.neg()
-      samePkgs = getSamePkgs(idBase)
-
-    if samePkgs.len > 0:
-      for samePkgId in samePkgs:
-        getPkg(samePkgId).data.fetch(logCtx)
-        let pseuRes = getPkg(samePkgId).data.pseudoversion(logCtx, unresRefr)
-        if pseuRes.isNone:
-          logCtx.error(
-            "Failed to resolve `$1` because it has no commit `$2`" %
-            [unresPkg.data.id, unresRefr]
-          )
-          quit(1)
-        
-        pseuVer = pseuRes.unsafeGet().ver
-    
-    else:
-      # Handle cloning ourselves
-      unresPkg.data.diskLoc = (
-        ctx.tmpDir / "packages" / randomSuffix(unresPkg.data.getFolderName())
-      )
-
-      unresPkg.data.clone(logCtx)
-      if not unresPkg.data.checkout(logCtx, unresRefr):
-        logCtx.error("Failed to resolve `$1` because it has no commit `$2`" % [
-          unresPkg.data.id, unresRefr
-        ])
-        quit(1)
-  
-      let pseuRes = unresPkg.data.pseudoversion(logCtx, unresRefr)
-      if pseuRes.isNone:
-        logCtx.error(
-          "Failed to resolve `$1` because it has no commit `$2`" %
-          [unresPkg.data.id, unresRefr]
-        )
-        quit(1)
-      
-      pseuVer = pseuRes.unsafeGet().ver
-
-    result.id = idBase & (if pseuVer.major > 0: "@" & $pseuVer.major else: "")
-    unresPkg.data.id = result.id
-    if unresPkg.constr.isSome:
-      result.constr = unresPkg.constr.unsafeGet()
-      if result.constr.lo > pseuVer:
-        logCtx.error(
-          "Failed to resolve `$1` because it has a lower bound `$2` than `$3`" %
-          [unresPkg.data.id, $result.constr.lo, $pseuVer]
-        )
-        quit(1)
-      result.constr.lo = pseuVer
-      
-    else:
-      result.constr = FaeVerConstraint(lo: pseuVer, hi: pseuVer)
-    if not ctx.packages.hasKey(result.id):
-      ctx.packages[result.id] = Package.init(
-        unresPkg.data,
-        result.constr,
-        true
-      )
-    return
-
-  else:
-    # Versioned packages
-    let
-      constr = unresPkg.constr.unsafeGet()
-      loVer = constr.lo
-    var samePkgs = getSamePkgs(unresPkg.data.id)
-
-    for samePkgId in samePkgs:
-      getPkg(samePkgId).data.fetch(logCtx)
-      let adapter = origins[getPkg(samePkgId).data.origin]
-      var resRef = adapter.resolve(
-        getPkg(samePkgId).data.toOriginCtx(logCtx), "v" & $loVer
-      )
-      if resRef.isNone:
-        resRef = adapter.resolve(
-          getPkg(samePkgId).data.toOriginCtx(logCtx), $loVer
-        )
-
-      if resRef.isNone:
-        logCtx.error(
-          "Failed to resolve `$1` because it has no version `$2`" %
-          [unresPkg.data.id, $loVer]
-        )
-        quit(1)
-
-      result.id = samePkgId
-      result.constr = constr
-      return
-
-    if samePkgs.len == 0:
-      # Clone it ourselves
-      result.id = unresPkg.data.id & (
-        if loVer.major > 0: "@" & $loVer.major else: ""
-      )
-      result.constr = constr
-      unresPkg.data.diskLoc = (
-        ctx.tmpDir / "packages" / randomSuffix(unresPkg.data.getFolderName())
-      )
-
-      unresPkg.data.clone(logCtx)
-      if not unresPkg.data.checkout(logCtx, loVer):
-        if unresPkg.foreignPm.isSome and unresPkg.foreignPm.unsafeGet() == PkgMngrKind.pmNimble:
-          logCtx.warn(
-            [
-              "Failed to resolve `$1` because it has no version `$2`. ",
-              "You should override this with a commit tag."
-            ].join("") %
-            [unresPkg.data.id, $loVer]
-          )
-        else:
-          logCtx.error(
-            "Failed to resolve `$1` because it has no version `$2`" %
-            [unresPkg.data.id, $loVer]
-          )
-          quit(1)
-
-      ctx.packages[result.id] = Package.init(
-        unresPkg.data,
-        unresPkg.constr.unsafeGet(),
-        false
-      )
-      return
-
-
 type
   # Maybe drag this type into `resolution.nim` and build it there?
   ConflictReport = object
@@ -365,132 +214,210 @@ proc conflictReport(conflicts: Conflicts): string =
     result &= "\n"
 
 
-proc getCommitFromPseuVer(ver: FaeVer): Option[string] =
-  let parts = ver.prerelease.rsplit('.', 3)
-  if parts.len < 2:
-    return none(string)
+# In src/processes/psync.nim (or where you put it)
 
-  let
-    dateStr = parts[^2]
-    hashStr = parts[^1]
+proc getResolvedConstraint*(
+  ctx: SyncProcessCtx,
+  unresPkg: UnresolvedPackage,
+  logCtx: LoggerContext
+): tuple[id: string, constr: FaeVerConstraint] =
+  ## Maps an UnresolvedPackage from a manifest line to a canonical ID and
+  ## its constraint for the graph.
+  let logCtx = logCtx.with("constraint-mapper")
 
-  if dateStr.len != 14 or not dateStr.allCharsInSet({'0'..'9'}):
-    return none(string)
+  # 1. Handle packages defined by a *reference* (e.g., commit hash)
+  if unresPkg.refr.isSome:
+    let refr = unresPkg.refr.unsafeGet()
+    # ID is source URI + ref.
+    result.id = unresPkg.data.id
+    
+    # Reference-based dependencies must be an *exact match*
+    # We use the constraint from the manifest or default to FaeVer.low.
+    result.constr = unresPkg.constr.get(FaeVerConstraint(
+      lo: FaeVer.low, hi: FaeVer.low
+    ))
+    return
 
-  if hashStr.len != 12:
-    return none(string)
+  # 2. Handle packages defined by a *version constraint* (MVS target)
+  else:
+    if unresPkg.constr.isNone:
+      logCtx.error("Versioned dependency `$1` has no constraint!" % unresPkg.data.id)
+      quit(1)
 
-  return some(hashStr)
+    # ID is just the source URI (the PID).
+    result.id = unresPkg.data.id
+    result.constr = unresPkg.constr.unsafeGet()
+    return
 
+
+# In src/processes/psync.nim
+# Rework of proc advanceResolution*
 
 proc advanceResolution*(
   ctx: SyncProcessCtx,
   logCtx: LoggerContext,
 ): bool =
-  ## Returns true if there were any changes to the graph during this invocation
-  # TODO: Maybe make it so we don't rebuild a graph's dependencies if it hasn't
-  # changed?
-  result = true
-  block:
-    var i = 0
-    for pkgs in ctx.unresolved.values: i += pkgs.len
-    if i == 0: return false
-
   template pkgSnapshot: HashSet[tuple[id: string, constr: FaeVerConstraint]] =
     toSeq(ctx.packages.values).mapIt((it.data.id, it.constr)).toHashSet()
 
   let
     logCtx = logCtx.with("resolution-cycle")
     versionSnapshot = pkgSnapshot()
+    unresolvedCount = toSeq(ctx.unresolved.values).foldl(a + b.len, 0)
 
-  logCtx.trace("Snapshot ->\n" & $versionSnapshot)
+  if unresolvedCount == 0:
+    return false
 
-  template getPkg(id: string): var Package = ctx.packages[id]
-
-  block ResolutionStage:
+  block GraphBuildingStage:
     var dependents = toSeq(ctx.unresolved.keys)
     while dependents.len > 0:
       let dependentId = dependents.pop()
       while ctx.unresolved[dependentId].len > 0:
         let unresPkg = ctx.unresolved[dependentId].pop()
-        let (dependencyId, version) = ctx.resolvePackage(unresPkg, logCtx)
-        if getPkg(dependencyId).data.diskLoc.startsWith(ctx.tmpDir):
-          let permDir = ctx.projPath / ".skull" / "packages" /
-            getPkg(dependencyId).data.getFolderName()
-          try:
-            moveDir(getPkg(dependencyId).data.diskLoc, permDir)
-          except OSError:
-            logCtx.warn("Failed to move `$1` to `$2`, attempting to copy..." % [
-              getPkg(dependencyId).data.diskLoc, permDir
-            ])
-            try:
-              copyDir(getPkg(dependencyId).data.diskLoc, permDir)
-            except OSError:
-              logCtx.error("Failed to copy `$1` to `$2`! Quitting..." % [
-                getPkg(dependencyId).data.diskLoc, permDir
-              ])
-              quit(1)
-            try:
-              removeDir(getPkg(dependencyId).data.diskLoc)
-            except OSError:
-              logCtx.warn(
-                "Couldn't clean up the temporary directory `$1`" %
-                getPkg(dependencyId).data.diskLoc
-              )
-          getPkg(dependencyId).data.diskLoc = permDir
-        ctx.graph.link(dependentId, dependencyId, version)
-
+        
+        let (dependencyId, constr) = ctx.getResolvedConstraint(unresPkg, logCtx)
+        ctx.graph.link(dependentId, dependencyId, constr)
+        
+        if not ctx.sourceMap.hasKey(dependencyId):
+            ctx.sourceMap[dependencyId] = unresPkg
+            
     ctx.unresolved.clear()
 
+  block GraphResolutionStage:
     let resolveRes = ctx.graph.resolve()
     if resolveRes.isErr:
-      logCtx.error(conflictReport(resolveRes.error))
+      logCtx.error("Dependency conflict detected:\n" & conflictReport(resolveRes.error))
       quit(1)
 
-    let success = resolveRes.unsafeGet()
-    for pkg in success:
-      getPkg(pkg.id).constr = pkg.constr
+    let narrowedConstraints = resolveRes.unsafeGet()
+    
+    let currentResolvedPIDs = narrowedConstraints.mapIt((it.id, it.constr)).toHashSet()
+    let changedPIDs = currentResolvedPIDs - versionSnapshot
+    
+    if changedPIDs.len == 0:
+      logCtx.trace("No changes to resolved package constraints. Skipping I/O.")
+      return false
+
+    logCtx.trace("Synchronising " & $changedPIDs.len & " package constraints that changed.")
+
+    var packagesSyncedInThisCycle: HashSet[string]
+
+    for pkgConstraint in narrowedConstraints:
       let
-        ver = pkg.constr.lo
-        refr = ver.getCommitFromPseuVer()
-      var checkedOut: bool
-      if refr.isSome:
-        # Keep it up to date
-        getPkg(pkg.id).refr = refr.unsafeGet()
-        checkedOut = getPkg(pkg.id).data.checkout(logCtx, refr.unsafeGet())
-      else:
-        # Maybe instead grab the fully qualified commit? Hmm
-        getPkg(pkg.id).refr = ""
-        checkedOut = getPkg(pkg.id).data.checkout(logCtx, ver)
+        pid = pkgConstraint.id
+        finalConstr = pkgConstraint.constr
+        minimalVer = finalConstr.lo
 
-      if getPkg(pkg.id).data.foreignPm.isSome and getPkg(pkg.id).data.foreignPm.unsafeGet() == PkgMngrKind.pmNimble:
-        discard
-      elif not checkedOut:
-        logCtx.error("Failed to checkout package `" & pkg.id & "`, can't proceed!")
-        quit(1)
+      var pkgData: PackageData
+      var needsSync = true
+      var wasClonedToTemp = false
 
-  block SynchronisationStage:
-    let unchanged = toSeq(versionSnapshot - pkgSnapshot()).mapIt(it[0])
+      if ctx.packages.hasKey(pid):
+        pkgData = ctx.packages[pid].data
 
-    block UnlinkTree:
-      for pkgId in toSeq(ctx.graph.edges.keys):
-        if pkgId == ctx.rootPkgId: continue
-        ctx.graph.unlinkAllDepsOf(pkgId)
-
-    for pkg in toSeq(ctx.packages.values):
-      if pkg.data.foreignPm.isSome:
-        case pkg.data.foreignPm.unsafeGet():
-        of PkgMngrKind.pmNimble:
-          once: initNimbleCompat(ctx.projPath)
-          ctx.initManifestForNimblePkg(pkg.data, logCtx)
+        if ctx.packages[pid].constr == finalConstr:
+            needsSync = false
+            if pid.rsplit('#', 1).len > 1:
+                let currentRefr = ctx.packages[pid].refr
+                let newRefr = pid.rsplit('#', 1)[1]
+                if currentRefr != newRefr:
+                    needsSync = true
         
-      let pkgMan = ctx.parseManifest(pkg.data, logCtx)
-      for dep in pkgMan.dependencies.values:
-        if dep.refr.isSome and (pkg.refr == dep.refr.unsafeGet):
-          continue
-        elif dep.toId(logCtx) notin unchanged and dep.toId(logCtx) in ctx.packages:
-          continue
-        ctx.registerDependency(pkg.data.id, dep, logCtx)
+        if pkgData.diskLoc.startsWith(ctx.tmpDir):
+            wasClonedToTemp = true
+            
+      else:
+        if not ctx.sourceMap.hasKey(pid):
+            logCtx.error("Internal error: Package data for PID `$1` not found for I/O setup." % pid)
+            quit(1)
+            
+        let sourcePkg = ctx.sourceMap[pid]
+        
+        pkgData = sourcePkg.data
+        pkgData.id = pid 
+
+
+      if needsSync:
+        let permDir = ctx.projPath / ".skull" / "packages" / pkgData.getFolderName()
+        
+        if not dirExists(permDir):
+          pkgData.diskLoc = (
+            ctx.tmpDir / "packages" / randomSuffix(pkgData.getFolderName())
+          )
+          pkgData.clone(logCtx)
+          wasClonedToTemp = true
+        else:
+          pkgData.diskLoc = permDir
+          pkgData.fetch(logCtx)
+
+        let refrPart = pid.rsplit('#', 1)
+        if refrPart.len > 1:
+          let refr = refrPart[1]
+          if not pkgData.checkout(logCtx, refr):
+            logCtx.error("Failed to checkout reference `$1` for `$2`." % [refr, pid])
+            quit(1)
+          
+          let pseuRes = pkgData.pseudoversion(logCtx, refr)
+          let resolvedVer = pseuRes.get((FaeVer.low, false)).ver
+          
+          ctx.packages[pid] = Package.init(
+            pkgData,
+            FaeVerConstraint(lo: resolvedVer, hi: resolvedVer),
+            true
+          )
+          
+        else:
+          if not pkgData.checkout(logCtx, minimalVer):
+            logCtx.error("Failed to checkout minimal version `$1` for `$2`." % [$minimalVer, pid])
+            quit(1)
+
+          ctx.packages[pid] = Package.init(
+            pkgData,
+            finalConstr,
+            false
+          )
+        
+        packagesSyncedInThisCycle.incl(pid)
+
+      if wasClonedToTemp:
+        let permDir = ctx.projPath / ".skull" / "packages" / pkgData.getFolderName()
+        let tmpLoc = pkgData.diskLoc
+        logCtx.trace("Moving temporary package from `$1` to permanent location `$2`." % [tmpLoc, permDir])
+
+        try:
+          moveDir(tmpLoc, permDir)
+        except OSError:
+          try:
+            copyDir(tmpLoc, permDir)
+            removeDir(tmpLoc)
+          except OSError:
+            logCtx.error("Failed to move temporary package from `$1` to permanent location `$2`! Quitting..." % [tmpLoc, permDir])
+            quit(1)
+        
+        pkgData.diskLoc = permDir
+        ctx.packages[pid].data.diskLoc = permDir
+        
+        packagesSyncedInThisCycle.incl(pid)
+
+
+    block UnlinkAndRequeue:
+      for pid in packagesSyncedInThisCycle:
+          ctx.graph.unlinkAllDepsOf(pid)
+          
+          let pkg = ctx.packages[pid]
+
+          if pkg.data.foreignPm.isSome:
+            case pkg.data.foreignPm.unsafeGet():
+            of PkgMngrKind.pmNimble:
+              once: initNimbleCompat(ctx.projPath)
+              ctx.initManifestForNimblePkg(pkg.data, logCtx)
+            
+          let pkgMan = ctx.parseManifest(pkg.data, logCtx)
+
+          for dep in pkgMan.dependencies.values:
+            ctx.registerDependency(pkg.data.id, dep, logCtx)
+
+  return true
 
 
 proc synchronise*(projPath: string, logCtx: LoggerContext) =

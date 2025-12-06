@@ -15,12 +15,12 @@ type
   SyncProcessCtx* = ref object
     projPath*, tmpDir*, rootPkgId*: string
     graph*: DependencyGraph
-    # ID -> Package
+    # ID -> Package (The resolved state)
     packages*: Packages
-    # Queue of packages that need to be resolved first before
-    # anything else... Needed for pseudoversion support and Nimble compat
-    # Dependent ID -> Dependencies
+    # Dependent ID -> Dependencies (The queue for the *next* cycle)
     unresolved*: Table[string, seq[UnresolvedPackage]]
+    # Resolved PID -> The UnresolvedPackage (Source data cache)
+    sourceMap*: Table[string, UnresolvedPackage]
 
 const ValidChars = Letters + Digits
 
