@@ -1,24 +1,3 @@
-[submodule "deps/hlibgit2"]
-	path = deps/hlibgit2
-	url = https://github.com/alaviss/hlibgit2
-[submodule "deps/hlibssh2"]
-	path = deps/hlibssh2
-	url = https://github.com/haxscramper/hlibssh2
 [submodule "deps/parsetoml"]
 	path = deps/parsetoml
 	url = https://github.com/NimParsers/parsetoml
-[submodule "deps/badresults"]
-	path = deps/badresults
-	url = https://github.com/disruptek/badresults
-[submodule "deps/gittyup"]
-	path = deps/gittyup
-	url = https://github.com/disruptek/gittyup
-[submodule "deps/grok"]
-	path = deps/grok
-	url = https://github.com/disruptek/grok
-[submodule "deps/skiplists"]
-	path = deps/skiplists
-	url = https://github.com/disruptek/skiplists
-[submodule "deps/gram"]
-	path = deps/gram
-	url = https://github.com/disruptek/gram

@@ -22,6 +22,19 @@ type
     # Resolved PID -> The UnresolvedPackage (Source data cache)
     sourceMap*: Table[string, UnresolvedPackage]
 
+  # Package -> Path
+  IndexedPackage* = object
+    path*: string 
+
+  # Dependent -> Dependencies (Dependency IDX in packages and namespave declared by dependent)
+  DependencyLink* = object
+    pkgIdx*: int
+    namespace*: string
+
+  FaeIndex* = object
+    packages*: seq[IndexedPackage]
+    depends*: Table[string, seq[DependencyLink]]
+
 const ValidChars = Letters + Digits
 
 proc randomSuffix*(inPath: string): string =

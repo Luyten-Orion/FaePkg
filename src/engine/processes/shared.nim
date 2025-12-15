@@ -49,30 +49,33 @@ template fullLoc*(pkg: PackageData): string =
     .join($DirSep)
 
 
-# TODO: Figure out a way to gently enforce package IDs having the major version
-# suffixed. Possibly add git hooks?
 proc toId*(dep: DependencyV0, logCtx: LoggerContext): string =
-  ## If `dep.refr` is set, we use that to generate an ID rather than
-  ## `dep.constr`.
+  ## Generates the canonical ID (PID) for a dependency.
   result = [dep.src, dep.subdir]
     .filterIt(not it.isEmptyOrWhitespace)
     .join("/")
 
-  # TODO: Move validation logic to a specific `validate` function for schema
   if dep.constr.isNone and dep.refr.isNone:
     logCtx.error("No version constraint or ref found for dependency `$1`" % dep.src)
     quit(1)
 
   if dep.refr.isSome:
+    # 1. Reference: PID = Source + #Ref
     result &= "#" & dep.refr.unsafeGet
   else:
-    if unsafeGet(dep.constr).lo.major != 0:
-      result &= "@" & $dep.constr
+    # 2. Versioned: PID = Source + @Major
+    # The major version must be derived from the constraint's lower bound.
+    let constr = unsafeGet(dep.constr)
+    result &= "@" & $constr.lo.major
 
 
 proc toPkgData*(dep: DependencyV0, logCtx: LoggerContext): PackageData =
+  let baseId = [dep.src, dep.subdir]
+    .filterIt(not it.isEmptyOrWhitespace)
+    .join("/")
+
   PackageData(
-    id: dep.toId(logCtx),
+    id: baseId,
     origin: dep.origin,
     loc: parseUri(&"{dep.scheme}://{dep.src}"),
     subdir: dep.subdir,
@@ -81,18 +84,27 @@ proc toPkgData*(dep: DependencyV0, logCtx: LoggerContext): PackageData =
 
 
 proc getFolderName*(src: PackageData): string =
-  for part in src.id.split('/'):
+  let splited = src.id.split('/').filterIt(not it.isEmptyOrWhitespace)
+  var parts = newSeqOfCap[string](splited.len)
+
+  for part in splited:
+    var res = newStringOfCap(part.len)
+
     for c in part:
-      if c == '!': result.add("!!")
+      if c == '!':
+        res.add("!!")
       elif c.isUpperAscii:
-        result.add('!')
-        result.add(c.toLowerAscii)
+        res.add('!')
+        res.add(c.toLowerAscii)
       elif c notin {'a'..'z', '0'..'9', '@', '.'}:
-        result.add('_')
-        result.add toHex(c.byte).toLowerAscii
+        res.add('_')
+        res.add toHex(c.byte).toLowerAscii
       else:
-        result.add(c)
-    result.add(DirSep)
+        res.add(c)
+
+    parts.add(res)
+
+  parts.join($DirSep)
 
 
 proc toOriginCtx*(pkg: PackageData, logCtx: LoggerContext): OriginContext =
@@ -189,3 +201,15 @@ proc pseudoversion*(
   refr: string
 ): Option[tuple[ver: FaeVer, isPseudo: bool]] =
   origins[pkg.origin].pseudoversion(pkg.toOriginCtx(logCtx), refr)
+
+
+proc stripPidMarkers*(pid: string): string =
+  result = pid
+
+  let idxHash = result.rfind('#')
+  if idxHash >= 0:
+      result = result[0..<idxHash]
+
+  let idxAt = result.rfind('@')
+  if idxAt >= 0:
+      result = result[0..<idxAt]

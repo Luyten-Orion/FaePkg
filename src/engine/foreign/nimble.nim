@@ -514,7 +514,7 @@ proc initManifestForNimblePkg*(
 
   let m = ManifestV0(
     format: 0,
-    package: PackageV0(name: pkg.id, srcDir: nbMan.srcDir),
+    package: PackageV0(name: pkg.id.stripPidMarkers(), srcDir: nbMan.srcDir),
     dependencies: dependencies
   )
 

@@ -5,6 +5,7 @@ import std/[
   options,
   tables,
   sets,
+  json,
   os
 ]
 
@@ -108,7 +109,7 @@ proc parseManifest(
     pkgPath = relativePath(pkgData.fullLoc(), ctx.projPath)
 
   try:
-    ManifestV0.fromToml(parseFile(pkgData.fullLoc() / "package.skull.toml"))
+    ManifestV0.fromToml(parsetoml.parseFile(pkgData.fullLoc() / "package.skull.toml"))
   except IOError:
     logCtx.error("Failed to open `$1`! Does it exist?" % 
       (pkgPath / "package.skull.toml"))
@@ -132,7 +133,7 @@ proc initRootPackage(
     pkgData: PackageData
 
   try:
-    rMan = ManifestV0.fromToml(parseFile(ctx.projPath / "package.skull.toml"))
+    rMan = ManifestV0.fromToml(parsetoml.parseFile(ctx.projPath / "package.skull.toml"))
   except IOError:
     logCtx.error("Failed to open `package.skull.toml`!")
     quit(1)
@@ -214,8 +215,6 @@ proc conflictReport(conflicts: Conflicts): string =
     result &= "\n"
 
 
-# In src/processes/psync.nim (or where you put it)
-
 proc getResolvedConstraint*(
   ctx: SyncProcessCtx,
   unresPkg: UnresolvedPackage,
@@ -225,33 +224,25 @@ proc getResolvedConstraint*(
   ## its constraint for the graph.
   let logCtx = logCtx.with("constraint-mapper")
 
-  # 1. Handle packages defined by a *reference* (e.g., commit hash)
+  # Handle packages defined by a *reference* (e.g., commit hash or branch/tag)
   if unresPkg.refr.isSome:
     let refr = unresPkg.refr.unsafeGet()
-    # ID is source URI + ref.
-    result.id = unresPkg.data.id
+    
+    result.id = unresPkg.data.id & "#" & refr
     
     # Reference-based dependencies must be an *exact match*
-    # We use the constraint from the manifest or default to FaeVer.low.
     result.constr = unresPkg.constr.get(FaeVerConstraint(
       lo: FaeVer.low, hi: FaeVer.low
     ))
     return
 
-  # 2. Handle packages defined by a *version constraint* (MVS target)
-  else:
-    if unresPkg.constr.isNone:
-      logCtx.error("Versioned dependency `$1` has no constraint!" % unresPkg.data.id)
-      quit(1)
+  if unresPkg.constr.isNone:
+    logCtx.error("Versioned dependency `$1` has no constraint!" % unresPkg.data.id)
+    quit(1)
 
-    # ID is just the source URI (the PID).
-    result.id = unresPkg.data.id
-    result.constr = unresPkg.constr.unsafeGet()
-    return
+  result.id = unresPkg.data.id & "@" & $unresPkg.constr.unsafeGet().lo.major
+  result.constr = unresPkg.constr.unsafeGet()
 
-
-# In src/processes/psync.nim
-# Rework of proc advanceResolution*
 
 proc advanceResolution*(
   ctx: SyncProcessCtx,
@@ -420,6 +411,80 @@ proc advanceResolution*(
   return true
 
 
+proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
+  ## Generates a FaeIndex from a SyncProcessCtx.
+  let logCtx = logCtx.with("index-generator")
+  
+  var 
+    # Maps the PID (string) to its array position (int)
+    idToIndexMap = initTable[string, int]() 
+    indexResult: FaeIndex
+    
+  indexResult.packages = newSeq[IndexedPackage]()
+  indexResult.depends = initTable[string, seq[DependencyLink]]()
+    
+  # --- Pass 1: Build the 'packages' array and the ID-to-Index Map ---
+  
+  var pkgIndex = 0
+  for pkgId, pkg in ctx.packages.pairs:
+    let indexedPkg = IndexedPackage(
+      path: relativePath(pkg.data.fullLoc(), ctx.projPath)
+    )
+    indexResult.packages.add(indexedPkg)
+    idToIndexMap[pkgId] = pkgIndex # Store mapping from PID string -> array index
+    inc pkgIndex
+
+  
+  # --- Pass 2: Build the 'depends' table ---
+
+  for pkgId, pkg in ctx.packages.pairs:
+    
+    # Key for the 'depends' table: Path of the DEPENDENT package (e.g., "my/proj")
+    let dependentPath = relativePath(pkg.data.fullLoc(), ctx.projPath)
+    
+    # Only process packages that actually have a manifest
+    if not dirExists(pkg.data.fullLoc()): continue
+    
+    var dependencyLinks: seq[DependencyLink]
+
+    try:
+      let pkgMan = ctx.parseManifest(pkg.data, logCtx)
+      
+      for alias, dep in pkgMan.dependencies.pairs:
+        # The dependency's original Source ID (e.g., 'github.com/foo/bar')
+        let originalDepId = dep.toPkgData(logCtx).id
+        
+        var resolvedIID: Option[string] = none(string)
+
+        if ctx.graph.edges.hasKey(pkgId):
+          for edge in ctx.graph.edges[pkgId]:
+            if edge.dependencyId.startsWith(originalDepId):
+              resolvedIID = some(edge.dependencyId)
+              break
+        
+        if resolvedIID.isSome():
+          let finalIID = resolvedIID.unsafeGet()
+          
+          if idToIndexMap.hasKey(finalIID):
+            let depIndex = idToIndexMap[finalIID]
+            
+            let link = DependencyLink(
+              pkgIdx: depIndex, 
+              namespace: alias # The alias used in the dependent's manifest
+            )
+            dependencyLinks.add(link)
+          else:
+            logCtx.warn("Internal error: Final IID `$1` resolved but not found in index map." % finalIID)
+            
+    except Exception as e:
+      logCtx.trace("Manifest scan failed for " & pkgId & ": " & e.msg)
+      
+    if dependencyLinks.len > 0:
+      indexResult.depends[dependentPath] = dependencyLinks
+
+  return indexResult
+
+
 proc synchronise*(projPath: string, logCtx: LoggerContext) =
   let logCtx = logCtx.with("sync")
   # TODO: Add override for the temporary directory?
@@ -447,3 +512,7 @@ proc synchronise*(projPath: string, logCtx: LoggerContext) =
   var resolveGraph = true
   while resolveGraph:
     resolveGraph = ctx.advanceResolution(logCtx)
+
+  let index = %*ctx.generateIndex(logCtx)
+
+  writeFile(ctx.projPath / ".skull" / "index.json", $index)
