@@ -1,3 +1,3 @@
-import ./schema/sv0
+import engine/schema/sv0
 
 export sv0

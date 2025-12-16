@@ -1,3 +1,3 @@
-import ./lock/lv0
+import engine/lock/lv0
 
 export lv0

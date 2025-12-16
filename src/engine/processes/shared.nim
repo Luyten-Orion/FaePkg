@@ -10,8 +10,8 @@ import std/[
 
 import parsetoml
 
-import ../../logging
-import ../[
+import logging
+import engine/[
   resolution,
   adapters,
   schema,

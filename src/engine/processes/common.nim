@@ -5,8 +5,8 @@ import std/[
   os
 ]
 
-import ../resolution
-import ./shared
+import engine/resolution
+import engine/processes/shared
 
 randomize()
 

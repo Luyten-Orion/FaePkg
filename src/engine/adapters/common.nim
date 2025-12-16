@@ -7,8 +7,8 @@ from std/sugar import `->`
 
 import parsetoml
 
-import ../../logging
-import ../faever
+import logging
+import engine/faever
 
 
 type

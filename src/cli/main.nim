@@ -1,5 +1,4 @@
-when not isMainModule: {.error: "You should never import this file, bug off!".}
-# TODO: Fae's commandline interface
+when not isMainModule: {.error: "You should never import this file, fuck off!".}
 
 import std/[
   strutils,
@@ -10,23 +9,21 @@ import experimental/cmdline
 
 import parsetoml
 
-import ../logging
+import logging
 
-import ../engine/[
+import engine/[
   faever,
   schema,
   lock,
   resolution
 ]
-import ../engine/adapters/[
+import engine/adapters/[
   common,
   git
 ]
 
 
-import "."/[
-  cmds
-]
+import cli/cmds
 
 
 var cli = FaeArgs.commandBuilder()

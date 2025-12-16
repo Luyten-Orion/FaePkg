@@ -12,9 +12,9 @@ import experimental/results
 import parsetoml
 #import gittyup
 
-import ./common
-import ../faever
-import ../../logging
+import engine/adapters/common
+import engine/faever
+import logging
 
 
 # TODO: Figure out how to do this in a non-blocking way

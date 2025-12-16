@@ -9,7 +9,7 @@ import std/[
 
 import parsetoml
 
-import ./tomlcommon
+import engine/private/tomlhelpers/tomlcommon
 
 
 type

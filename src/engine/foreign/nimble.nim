@@ -23,13 +23,13 @@ import experimental/[
 
 import parsetoml
 
-import ../../logging
-import ../private/tomlhelpers
-import ../processes/[
+import logging
+import engine/private/tomlhelpers
+import engine/processes/[
   shared,
   common
 ]
-import ../[
+import engine/[
   adapters,
   faever,
   schema
@@ -125,84 +125,101 @@ proc parseNimble*(file: string): NimbleManifest =
     else:
       inRequire = false
 
+const HardcodedVcsInfo: Table[string, string] = {
+  "github.com": "git",
+  "gitlab.com": "git",
+  "codeberg.org": "git"
+}.toTable
 
-# TODO: Probably hardcode common hosts like github, gitlab, etc
 # TODO: Don't `quit`, we should instead use a smarter reporting system.
 proc fetchInfo(gUrl: Uri, dep: var DependencyV0) =
   # This method only works on forges with `go-get`, we should probably
   # add a fallback method, or simply try to use the URL as-is without `go-get`
-  var
-    isMixedCase: bool
-    head: XmlNode
-    sUrl: Uri
-    uris = newSeqOfCap[Uri](2)
+  var sUrl: Uri
 
-  for c in gUrl.path:
-    if c.isUpperAscii:
-      isMixedCase = true
-      break
+  if gUrl.hostname.toLowerAscii() notin HardcodedVcsInfo:
+    when not defined(faeNoGoGet):
+      var
+        isMixedCase: bool
+        head: XmlNode
+        uris = newSeqOfCap[Uri](2)
 
-  if isMixedCase:
-    uris.add(gUrl)
-    uris[0].path = uris[0].path.toLower
-  uris.add(gUrl)
+      for c in gUrl.path:
+        if c.isUpperAscii:
+          isMixedCase = true
+          break
 
-  while uris.len > 0:
-    # There is absoLUTELY a better way to do this, but I have back pain rn
-    template quitOrCont =
-      if uris.len == 0:
-        quit "Failed to resolve $1, can't proceed!" % [$url], 1
-      else:
-        continue
+      if isMixedCase:
+        uris.add(gUrl)
+        uris[0].path = uris[0].path.toLower
+      uris.add(gUrl)
 
-    var url = uris.pop()
+      while uris.len > 0:
+        # There is absoLUTELY a better way to do this, but I have back pain rn
+        template quitOrCont =
+          if uris.len == 0:
+            quit "Failed to resolve $1, can't proceed!" % [$url], 1
+          else:
+            continue
 
-    if url.query != "": url.query &= "&"
-    url.query &= "go-get=1"
+        var url = uris.pop()
+
+        if url.query != "": url.query &= "&"
+        url.query &= "go-get=1"
 
 
-    let
-      client = newHttpClient()
-      resp = try:
-          client.getContent(url)
-        except HttpRequestError:
+        let
+          client = newHttpClient()
+          resp = try:
+              client.getContent(url)
+            except HttpRequestError:
+              quitOrCont
+          parsed = parseHtml(resp)
+
+        let html = parsed.child("html")
+        if html == nil:
           quitOrCont
-      parsed = parseHtml(resp)
 
-    let html = parsed.child("html")
-    if html == nil:
-      quitOrCont
+        head = html.child("head")
+        if head == nil:
+          quitOrCont
 
-    head = html.child("head")
-    if head == nil:
-      quitOrCont
-
-    sUrl = url
-    client.close()
+        sUrl = url
+        client.close()
 
 
-  let repoInfo = head.findAll("meta")
-    .filterIt(it.attr("name") == "go-import")
-    .mapIt(
-      if it == nil:
+      let repoInfo = head.findAll("meta")
+        .filterIt(it.attr("name") == "go-import")
+        .mapIt(
+          if it == nil:
+            quit "Failed to resolve $1, can't proceed!" % [$sUrl], 1
+          else: it.attr("content"))
+        .getOrDefault(0, "")
+
+      if repoInfo == "":
         quit "Failed to resolve $1, can't proceed!" % [$sUrl], 1
-      else: it.attr("content"))
-    .getOrDefault(0, "")
 
-  if repoInfo == "":
-    quit "Failed to resolve $1, can't proceed!" % [$sUrl], 1
+      let
+        parts = repoInfo.split(' ', 2)
 
-  let
-    parts = repoInfo.split(' ', 2)
+      if parts.len != 3:
+        quit "Failed to resolve $1, can't proceed!" % [$sUrl], 1
 
-  if parts.len != 3:
-    quit "Failed to resolve $1, can't proceed!" % [$sUrl], 1
+      dep.origin = parts[1]
+      var parsedUri = parseUri(parts[2])
+      dep.scheme = parsedUri.scheme
+      parsedUri.scheme = ""
+      dep.src = $parsedUri
+    else:
+      quit "Failed to resolve $1, can't proceed (`go-get` support disabled)!" % [$gUrl], 1
+  else:
+    dep.origin = HardcodedVcsInfo[gUrl.hostname.toLowerAscii()]
+    sUrl = gUrl
+    sUrl.scheme = ""
+    sUrl.hostname = sUrl.hostname.toLowerAscii()
+    dep.scheme = gUrl.scheme
+    dep.src = $sUrl
 
-  dep.origin = parts[1]
-  var parsedUri = parseUri(parts[2])
-  dep.scheme = parsedUri.scheme
-  parsedUri.scheme = ""
-  dep.src = $parsedUri
   # TODO: Support more VCSes, but tbh this is a very low priority
   # thing since I am pretty sure that the only repos in the packages.json rn
   # are git repos, since bitbucket doesn't have free hosting anymore

@@ -11,16 +11,16 @@ import std/[
 
 import parsetoml
 
-import ../../logging
-import ../private/tomlhelpers
-import ../foreign/nimble
-import ../[
+import logging
+import engine/private/tomlhelpers
+import engine/foreign/nimble
+import engine/[
   resolution,
   adapters,
   schema,
   faever
 ]
-import ./[
+import engine/processes/[
   shared,
   common
 ]

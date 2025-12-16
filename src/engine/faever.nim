@@ -11,7 +11,7 @@ import experimental/results
 
 import parsetoml
 
-import ./private/tomlhelpers
+import engine/private/tomlhelpers
 
 type
   FaeVer* = object

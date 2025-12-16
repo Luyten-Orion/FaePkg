@@ -6,8 +6,8 @@ import std/[
   sets
 ]
 
-import ../logging
-import ./[schema, faever]
+import logging
+import engine/[schema, faever]
 
 
 type
