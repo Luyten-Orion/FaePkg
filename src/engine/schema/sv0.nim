@@ -5,7 +5,7 @@ import std/[
   uri
 ]
 
-import parsetoml
+import pkg/parsetoml
 
 import engine/faever
 import engine/private/tomlhelpers

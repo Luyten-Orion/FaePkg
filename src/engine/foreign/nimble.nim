@@ -21,7 +21,7 @@ import experimental/[
   results
 ]
 
-import parsetoml
+import pkg/parsetoml
 
 import logging
 import engine/private/tomlhelpers
@@ -458,8 +458,10 @@ proc initManifestForNimblePkg*(
   ctx: SyncProcessCtx,
   pkg: PackageData,
   logCtx: LoggerContext
-) =
-  let nbMan = parseNimble(pkg.fullLoc / getNimblePkgName(pkg) & ".nimble")
+): string =
+  ## Returns the name of the original nimble package
+  result = getNimblePkgName(pkg)
+  let nbMan = parseNimble(pkg.fullLoc / result & ".nimble")
 
   var deps = nbMan.requiresData.mapIt(requireToDep(logCtx, it)).toTable
 

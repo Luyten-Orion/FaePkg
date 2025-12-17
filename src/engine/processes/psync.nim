@@ -9,7 +9,7 @@ import std/[
   os
 ]
 
-import parsetoml
+import pkg/parsetoml
 
 import logging
 import engine/private/tomlhelpers
@@ -390,7 +390,6 @@ proc advanceResolution*(
         
         packagesSyncedInThisCycle.incl(pid)
 
-
     block UnlinkAndRequeue:
       for pid in packagesSyncedInThisCycle:
           ctx.graph.unlinkAllDepsOf(pid)
@@ -401,7 +400,9 @@ proc advanceResolution*(
             case pkg.data.foreignPm.unsafeGet():
             of PkgMngrKind.pmNimble:
               once: initNimbleCompat(ctx.projPath)
-              ctx.initManifestForNimblePkg(pkg.data, logCtx)
+              ctx.packages[pid].data.entrypoint = ctx.initManifestForNimblePkg(
+                pkg.data, logCtx
+              ).some()
             
           let pkgMan = ctx.parseManifest(pkg.data, logCtx)
           ctx.packages[pid].data.srcDir = pkgMan.package.srcDir
@@ -416,48 +417,48 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
   ## Generates a FaeIndex from a SyncProcessCtx.
   let logCtx = logCtx.with("index-generator")
   
-  var 
-    # Maps the PID (string) to its array position (int)
-    idToIndexMap = initTable[string, int]() 
-    indexResult: FaeIndex
+  var idToIndexMap = initTable[string, int]()
     
-  indexResult.packages = newSeq[IndexedPackage]()
-  indexResult.depends = initTable[string, seq[DependencyLink]]()
-    
-  # --- Pass 1: Build the 'packages' array and the ID-to-Index Map ---
-  
-  var pkgIndex = 0
+  result.packages = newSeq[IndexedPackage]()
+  result.depends = initTable[string, seq[DependencyLink]]()
+
+  var pkgIndex = 0  
   for pkgId, pkg in ctx.packages.pairs:
     let indexedPkg = IndexedPackage(
       path: relativePath(pkg.data.fullLoc(), ctx.projPath),
-      srcDir: pkg.data.srcDir
+      srcDir: pkg.data.srcDir,
+      entrypoint: pkg.data.entrypoint.get("")
     )
-    indexResult.packages.add(indexedPkg)
-    idToIndexMap[pkgId] = pkgIndex # Store mapping from PID string -> array index
+    result.packages.add(indexedPkg)
+    idToIndexMap[pkgId] = pkgIndex
     inc pkgIndex
 
-  
-  # --- Pass 2: Build the 'depends' table ---
+    result.depends[indexedPkg.path] = newSeq[DependencyLink]()
+    if pkg.data.entrypoint.isSome:
+      result.depends[indexedPkg.path].add DependencyLink(
+        pkgIdx: idToIndexMap[pkgId],
+        # I think this'll work for Nimble packages that wanna refer to themselves? Maybe?
+        namespace: pkg.data.entrypoint.unsafeGet()
+      )
+    
+    else:
+      result.depends[indexedPkg.path].add DependencyLink(
+        pkgIdx: idToIndexMap[pkgId],
+        # So packages can refer to themselves
+        namespace: pkg.data.id.rsplit('#', 1)[0].rsplit('@', 1)[0].rsplit('/', 1)[1].replace("-", "_")
+      )
 
   for pkgId, pkg in ctx.packages.pairs:
-    
-    # Key for the 'depends' table: Path of the DEPENDENT package (e.g., "my/proj")
     let dependentPath = relativePath(pkg.data.fullLoc(), ctx.projPath)
-    
-    # Only process packages that actually have a manifest
     if not dirExists(pkg.data.fullLoc()): continue
-    
     var dependencyLinks: seq[DependencyLink]
 
     try:
       let pkgMan = ctx.parseManifest(pkg.data, logCtx)
-      
       for alias, dep in pkgMan.dependencies.pairs:
         # The dependency's original Source ID (e.g., 'github.com/foo/bar')
         let originalDepId = dep.toPkgData(logCtx).id
-        
-        var resolvedIID: Option[string] = none(string)
-
+        var resolvedIID = none(string)
         if ctx.graph.edges.hasKey(pkgId):
           for edge in ctx.graph.edges[pkgId]:
             if edge.dependencyId.startsWith(originalDepId):
@@ -466,25 +467,22 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
         
         if resolvedIID.isSome():
           let finalIID = resolvedIID.unsafeGet()
-          
           if idToIndexMap.hasKey(finalIID):
-            let depIndex = idToIndexMap[finalIID]
-            
-            let link = DependencyLink(
-              pkgIdx: depIndex, 
-              namespace: alias # The alias used in the dependent's manifest
-            )
+            let
+              depIndex = idToIndexMap[finalIID]
+              link = DependencyLink(
+                pkgIdx: depIndex, 
+                namespace: alias # The alias used in the dependent's manifest
+              )
             dependencyLinks.add(link)
           else:
             logCtx.warn("Internal error: Final IID `$1` resolved but not found in index map." % finalIID)
-            
+
     except Exception as e:
       logCtx.trace("Manifest scan failed for " & pkgId & ": " & e.msg)
       
     if dependencyLinks.len > 0:
-      indexResult.depends[dependentPath] = dependencyLinks
-
-  return indexResult
+      result.depends[dependentPath].add dependencyLinks
 
 
 proc synchronise*(projPath: string, logCtx: LoggerContext) =

@@ -7,7 +7,7 @@ import std/[
   uri
 ]
 
-import parsetoml
+import pkg/parsetoml
 
 import engine/private/tomlhelpers/tomlcommon
 

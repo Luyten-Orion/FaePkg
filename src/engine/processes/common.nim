@@ -26,6 +26,7 @@ type
   IndexedPackage* = object
     path*: string
     srcDir*: string
+    entrypoint*: string
 
   # Dependent -> Dependencies (Dependency IDX in packages and namespave declared by dependent)
   DependencyLink* = object

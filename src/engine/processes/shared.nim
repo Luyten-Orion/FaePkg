@@ -8,7 +8,7 @@ import std/[
   os
 ]
 
-import parsetoml
+import pkg/parsetoml
 
 import logging
 import engine/[
@@ -27,6 +27,7 @@ type
     subdir*: string
     diskLoc*: string
     foreignPm*: Option[PkgMngrKind]
+    entrypoint*: Option[string]
 
   Package* = object
     data*: PackageData
