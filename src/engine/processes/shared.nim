@@ -23,6 +23,7 @@ type
     origin*: string
     id*: string
     loc*: Uri
+    srcDir*: string
     subdir*: string
     diskLoc*: string
     foreignPm*: Option[PkgMngrKind]

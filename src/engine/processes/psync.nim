@@ -144,7 +144,7 @@ proc initRootPackage(
     quit(1)
 
   result = rMan.package.name
-  pkgData = PackageData(id: result, diskLoc: ctx.projPath)
+  pkgData = PackageData(id: result, diskLoc: ctx.projPath, srcDir: rMan.package.srcDir)
   let originCtx = pkgData.toOriginCtx(logCtx)
 
   for origin in origins.keys:
@@ -404,6 +404,7 @@ proc advanceResolution*(
               ctx.initManifestForNimblePkg(pkg.data, logCtx)
             
           let pkgMan = ctx.parseManifest(pkg.data, logCtx)
+          ctx.packages[pid].data.srcDir = pkgMan.package.srcDir
 
           for dep in pkgMan.dependencies.values:
             ctx.registerDependency(pkg.data.id, dep, logCtx)
@@ -428,7 +429,8 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
   var pkgIndex = 0
   for pkgId, pkg in ctx.packages.pairs:
     let indexedPkg = IndexedPackage(
-      path: relativePath(pkg.data.fullLoc(), ctx.projPath)
+      path: relativePath(pkg.data.fullLoc(), ctx.projPath),
+      srcDir: pkg.data.srcDir
     )
     indexResult.packages.add(indexedPkg)
     idToIndexMap[pkgId] = pkgIndex # Store mapping from PID string -> array index
