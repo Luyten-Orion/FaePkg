@@ -34,6 +34,7 @@ type
     namespace*: string
 
   FaeIndex* = object
+    sources*: seq[string] # Manifest paths
     packages*: seq[IndexedPackage]
     depends*: Table[string, seq[DependencyLink]]
 

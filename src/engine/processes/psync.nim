@@ -447,6 +447,13 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
         # So packages can refer to themselves
         namespace: pkg.data.id.rsplit('#', 1)[0].rsplit('@', 1)[0].rsplit('/', 1)[1].replace("-", "_")
       )
+    
+    let manifestFile = pkg.data.fullLoc() / "package.skull.toml"
+    if not fileExists(manifestFile):
+      logCtx.error("Package manifest for PID `$1` not found for index generation!" % pkgId)
+      quit(1)
+
+    result.sources.add relativePath(manifestFile, ctx.projPath)
 
   for pkgId, pkg in ctx.packages.pairs:
     let dependentPath = relativePath(pkg.data.fullLoc(), ctx.projPath)
