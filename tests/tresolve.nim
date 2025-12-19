@@ -16,7 +16,7 @@ block: # valid graph test
 
   let res = g.resolve()
   assert res.isOk, "Failed to resolve graph: " & $res.error
-  let depTbl = res.unsafeGet().mapIt((it.dependencyId, it.constr)).toTable
+  let depTbl = res.unsafeGet().mapIt((it.id, it.constr)).toTable
 
   assert depTbl["libA"].lo == FaeVer(major: 1)
   assert depTbl["libB"].lo == FaeVer(major: 1, minor: 5)

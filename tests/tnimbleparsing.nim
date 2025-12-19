@@ -9,7 +9,7 @@ import experimental/results
 
 import src/engine/foreign/nimble
 import src/engine/faever
-
+import src/logging
 
 let tmpDir = block:
   let res = getTempDir()
@@ -47,18 +47,21 @@ requires "repo1 == 1.0.0" # Allowed
 requires "repo2 >= 1.0.0 < 2.0.0" # Allowed
 requires "repo1 > 1.0.0 < 2.0.0" # Allowed but lowerbound must be set elsewhere
   ]#
-  let manifest = parseNimble("tests/tnimbleparsing/standard.nimble")
+  let
+    logger = Logger.new()
+    logCtx = logger.with("tnimbleparsing")
+    manifest = parseNimble("tests/tnimbleparsing/standard.nimble")
 
   var deps = manifest.requiresData
-    .map(requireToDep)
+    .mapIt(requireToDep(logCtx, it))
 
   template fv(s: string): FaeVer = FaeVer.parse(s).unsafeGet
 
-  assert deps[0].decl.constr == FaeVerConstraint(lo: fv"1.0.0",
+  assert deps[0].decl.constr.unsafeGet == FaeVerConstraint(lo: fv"1.0.0",
     hi: FaeVer.high, excl: @[fv"1.0.0"])
-  assert deps[1].decl.constr == FaeVerConstraint(lo: FaeVer.neg, hi: fv"1.0.0", excl: @[fv"1.0.0"])
-  assert deps[2].decl.constr == FaeVerConstraint(lo: fv"1.0.0", hi: FaeVer.high)
-  assert deps[3].decl.constr == FaeVerConstraint(lo: FaeVer.neg, hi: fv"1.0.0")
-  assert deps[4].decl.constr == FaeVerConstraint(lo: fv"1.0.0", hi: fv"1.0.0")
-  assert deps[5].decl.constr == FaeVerConstraint(lo: fv"1.0.0", hi: fv"2.0.0", excl: @[fv"2.0.0"])
-  assert deps[6].decl.constr == FaeVerConstraint(lo: fv"1.0.0", hi: fv"2.0.0", excl: @[fv"1.0.0", fv"2.0.0"])
+  assert deps[1].decl.constr.unsafeGet == FaeVerConstraint(lo: FaeVer(), hi: fv"1.0.0", excl: @[fv"1.0.0"])
+  assert deps[2].decl.constr.unsafeGet == FaeVerConstraint(lo: fv"1.0.0", hi: FaeVer.high)
+  assert deps[3].decl.constr.unsafeGet == FaeVerConstraint(lo: FaeVer(), hi: fv"1.0.0")
+  assert deps[4].decl.constr.unsafeGet == FaeVerConstraint(lo: fv"1.0.0", hi: fv"1.0.0")
+  assert deps[5].decl.constr.unsafeGet == FaeVerConstraint(lo: fv"1.0.0", hi: fv"2.0.0", excl: @[fv"2.0.0"])
+  assert deps[6].decl.constr.unsafeGet == FaeVerConstraint(lo: fv"1.0.0", hi: fv"2.0.0", excl: @[fv"1.0.0", fv"2.0.0"])
