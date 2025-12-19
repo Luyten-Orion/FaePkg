@@ -22,19 +22,19 @@ type
     # Resolved PID -> The UnresolvedPackage (Source data cache)
     sourceMap*: Table[string, UnresolvedPackage]
 
-  # Package -> Path
+  # Package -> Info
   IndexedPackage* = object
-    path*: string
     srcDir*: string
     entrypoint*: string
 
-  # Dependent -> Dependencies (Dependency IDX in packages and namespave declared by dependent)
+  # Dependent -> Dependencies (Dependency path in packages and namespace declared by dependent)
   DependencyLink* = object
-    pkgIdx*: int
+    path*: string
     namespace*: string
 
   FaeIndex* = object
-    packages*: seq[IndexedPackage]
+    # Path -> IndexedPackage
+    packages*: Table[string, IndexedPackage]
     depends*: Table[string, seq[DependencyLink]]
 
 const ValidChars = Letters + Digits

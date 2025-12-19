@@ -417,36 +417,32 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
   ## Generates a FaeIndex from a SyncProcessCtx.
   let logCtx = logCtx.with("index-generator")
   
-  var idToIndexMap = initTable[string, int]()
-    
-  result.packages = newSeq[IndexedPackage]()
+  result.packages = initTable[string, IndexedPackage]()
   result.depends = initTable[string, seq[DependencyLink]]()
 
-  var pkgIndex = 0  
   for pkgId, pkg in ctx.packages.pairs:
     let indexedPkg = IndexedPackage(
-      path: relativePath(pkg.data.fullLoc(), ctx.projPath),
       srcDir: pkg.data.srcDir,
       entrypoint: pkg.data.entrypoint.get("")
     )
-    result.packages.add(indexedPkg)
-    idToIndexMap[pkgId] = pkgIndex
-    inc pkgIndex
+    # The key for the packages table is the package's full path relative to the project root
+    # This is because the index is consumed by the compiler, which needs paths.
+    let pkgPath = relativePath(pkg.data.fullLoc(), ctx.projPath)
+    result.packages[pkgPath] = indexedPkg
 
-    result.depends[indexedPkg.path] = newSeq[DependencyLink]()
+    result.depends[pkgPath] = newSeq[DependencyLink]()
     if pkg.data.entrypoint.isSome:
-      result.depends[indexedPkg.path].add DependencyLink(
-        pkgIdx: idToIndexMap[pkgId],
+      result.depends[pkgPath].add DependencyLink(
         # I think this'll work for Nimble packages that wanna refer to themselves? Maybe?
         namespace: pkg.data.entrypoint.unsafeGet()
       )
     
     else:
-      result.depends[indexedPkg.path].add DependencyLink(
-        pkgIdx: idToIndexMap[pkgId],
+      result.depends[pkgPath].add DependencyLink(
         # So packages can refer to themselves
         namespace: pkg.data.id.rsplit('#', 1)[0].rsplit('@', 1)[0].rsplit('/', 1)[1].replace("-", "_")
       )
+
 
   for pkgId, pkg in ctx.packages.pairs:
     let dependentPath = relativePath(pkg.data.fullLoc(), ctx.projPath)
@@ -466,17 +462,15 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
               break
         
         if resolvedIID.isSome():
-          let finalIID = resolvedIID.unsafeGet()
-          if idToIndexMap.hasKey(finalIID):
+          let finalPkg = ctx.packages[resolvedIID.unsafeGet()]
+          let finalPkgPath = relativePath(finalPkg.data.fullLoc(), ctx.projPath)
+          if result.packages.hasKey(finalPkgPath):
             let
-              depIndex = idToIndexMap[finalIID]
               link = DependencyLink(
-                pkgIdx: depIndex, 
+                path: finalPkgPath,
                 namespace: alias # The alias used in the dependent's manifest
               )
             dependencyLinks.add(link)
-          else:
-            logCtx.warn("Internal error: Final IID `$1` resolved but not found in index map." % finalIID)
 
     except Exception as e:
       logCtx.trace("Manifest scan failed for " & pkgId & ": " & e.msg)
