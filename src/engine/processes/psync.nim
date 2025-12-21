@@ -417,17 +417,20 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
   ## Generates a FaeIndex from a SyncProcessCtx.
   let logCtx = logCtx.with("index-generator")
   
+  template toUnixPath(p: string): string =
+    when defined(windows): p.replace('\\', '/') else: p
+
   result.packages = initTable[string, IndexedPackage]()
   result.depends = initTable[string, seq[DependencyLink]]()
 
   for pkgId, pkg in ctx.packages.pairs:
     let indexedPkg = IndexedPackage(
-      srcDir: pkg.data.srcDir,
-      entrypoint: pkg.data.entrypoint.get("")
+      srcDir: toUnixPath(pkg.data.srcDir),
+      entrypoint: toUnixPath(pkg.data.entrypoint.get(""))
     )
     # The key for the packages table is the package's full path relative to the project root
     # This is because the index is consumed by the compiler, which needs paths.
-    let pkgPath = relativePath(pkg.data.fullLoc(), ctx.projPath)
+    let pkgPath = toUnixPath(relativePath(pkg.data.fullLoc(), ctx.projPath))
     result.packages[pkgPath] = indexedPkg
 
     result.depends[pkgPath] = newSeq[DependencyLink]()
@@ -445,7 +448,7 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
 
 
   for pkgId, pkg in ctx.packages.pairs:
-    let dependentPath = relativePath(pkg.data.fullLoc(), ctx.projPath)
+    let dependentPath = toUnixPath(relativePath(pkg.data.fullLoc(), ctx.projPath))
     if not dirExists(pkg.data.fullLoc()): continue
     var dependencyLinks: seq[DependencyLink]
 
@@ -463,7 +466,7 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
         
         if resolvedIID.isSome():
           let finalPkg = ctx.packages[resolvedIID.unsafeGet()]
-          let finalPkgPath = relativePath(finalPkg.data.fullLoc(), ctx.projPath)
+          let finalPkgPath = toUnixPath(relativePath(finalPkg.data.fullLoc(), ctx.projPath))
           if result.packages.hasKey(finalPkgPath):
             let
               link = DependencyLink(
