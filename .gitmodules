@@ -1,3 +1,0 @@
-[submodule "deps/parsetoml"]
-	path = deps/parsetoml
-	url = https://github.com/NimParsers/parsetoml
