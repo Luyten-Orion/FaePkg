@@ -16,16 +16,15 @@ type
     targetDir*: string
     logCtx*: LoggerContext
 
-  # TODO: Maybe a context object would be useful...
   OriginAdapter* = object
-    # TODO: Maybe a callback for fetching only the manifest?
-    # this is a large stroke of code though, many actions bundled into one proc.
     cloneImpl*: (ctx: OriginContext, url: string) -> bool
     fetchRefrImpl*: (ctx: OriginContext, url: string, refr: string) -> bool
     fetchTagsImpl*: (ctx: OriginContext, url: string) -> bool
     resolveImpl*: (ctx: OriginContext, refr: string) -> Option[string]
     pseudoversionImpl*: (ctx: OriginContext, refr: string) -> Option[tuple[ver: FaeVer, isPseudo: bool]]
     checkoutImpl*: (ctx: OriginContext, refr: string) -> bool
+    catFileImpl*: (ctx: OriginContext, refr: string, file: string) -> Option[string]
+    lsFileImpl*: (ctx: OriginContext, refr: string, pattern: string) -> seq[string]
     isVcs*: (ctx: OriginContext) -> bool
 
 # Populated at startup, should never be modified afterwards... Can't enforce
@@ -74,6 +73,14 @@ proc pseudoversion*(
 
 proc checkout*(adapter: OriginAdapter, ctx: OriginContext, refr: string): bool =
   adapter.checkoutImpl(ctx, refr)
+
+
+proc catFile*(adapter: OriginAdapter, ctx: OriginContext, refr: string, file: string): Option[string] =
+  adapter.catFileImpl(ctx, refr, file)
+
+
+proc lsFile*(adapter: OriginAdapter, ctx: OriginContext, refr, pattern: string): seq[string] =
+  adapter.lsFileImpl(ctx, refr, pattern)
 
 
 proc isVcs*(adapter: OriginAdapter, ctx: OriginContext): bool =

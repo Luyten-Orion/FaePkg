@@ -1,7 +1,9 @@
 import std/[
   strutils,
+  sequtils,
   streams,
   options,
+  tables,
   osproc,
   times,
   os
@@ -9,7 +11,6 @@ import std/[
 
 import experimental/results
 
-import pkg/parsetoml
 #import gittyup
 
 import engine/adapters/common
@@ -18,7 +19,7 @@ import logging
 
 
 # TODO: Figure out how to do this in a non-blocking way
-proc gitExec(
+proc gitExec*(
   logCtx: LoggerContext,
   workingDir: string,
   args: openArray[string]
@@ -54,8 +55,8 @@ proc gitCloneImpl*(ctx: OriginContext, url: string): bool =
   let logCtx = ctx.logCtx.with("git", "clone")
   createDir(ctx.targetDir.parentDir)
   let res = gitExec(logCtx, ctx.targetDir.parentDir, [
-      "clone", url, ctx.targetDir.rsplit('/', 1)[^1]
-    ])
+    "clone", url, ctx.targetDir.rsplit('/', 1)[^1]
+  ])
   logCtx.trace("Output ->\n$1" % res.output)
   res.code == 0
 
@@ -120,12 +121,12 @@ proc gitPseudoversionImpl*(
       logCtx.trace("Output ->\n$1" % res.output)
 
     if res.code != 0:
-      outStr = "0.0.0"
+      outStr = "0.0.0-pre"
     else:
       outStr = res.output
 
     let parseRes = FaeVer.parse(
-      if res.output.startsWith("v"): res.output[1..^1] else: res.output
+      if outStr.startsWith("v"): outStr[1..^1] else: outStr
     )
     
     tag = parseRes.get(FaeVer.low())
@@ -174,6 +175,23 @@ proc gitCheckoutImpl*(ctx: OriginContext, refr: string): bool =
   res.code == 0
 
 
+proc gitCatFileImpl*(ctx: OriginContext, refr, file: string): Option[string] =
+  let
+    logCtx = ctx.logCtx.with("git", "cat-file")
+    res = gitExec(logCtx, ctx.targetDir, ["show", "$1:$2" % [refr, file]])
+
+  logCtx.trace("Output ->\n$1" % res.output)
+  if res.code == 0: some(res.output) else: none(string)
+
+
+proc gitLsFilesImpl*(ctx: OriginContext, refr, pattern: string): seq[string] =
+  let
+    logCtx = ctx.logCtx.with("git", "ls-files")
+    res = gitExec(logCtx, ctx.targetDir, ["ls-tree", "-r", "--name-only", refr])
+
+  logCtx.trace("Output ->\n$1" % res.output)
+  if res.code == 0: res.output.splitLines().filterIt(it.endsWith(pattern)) else: @[]
+
 proc gitIsVcsImpl*(ctx: OriginContext): bool =
   # returns true if the directory is a git repo
   dirExists(ctx.targetDir / ".git")
@@ -186,5 +204,7 @@ origins["git"] = OriginAdapter(
   resolveImpl: gitResolveImpl,
   pseudoversionImpl: gitPseudoversionImpl,
   checkoutImpl: gitCheckoutImpl,
+  catFileImpl: gitCatFileImpl,
+  lsFileImpl: gitLsFilesImpl,
   isVcs: gitIsVcsImpl
 )

@@ -2,6 +2,7 @@ when not isMainModule: {.error: "You should never import this file, fuck off!".}
 
 import std/[
   strutils,
+  random,
   sugar,
   os
 ]
@@ -25,6 +26,7 @@ import engine/adapters/[
 
 import cli/cmds
 
+randomize()
 
 var cli = FaeArgs.commandBuilder()
   .name("fae")
