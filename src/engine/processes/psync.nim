@@ -267,7 +267,6 @@ proc advanceResolution(
     
     # 3a. Update/Clone Bare Repo
     if not dirExists(pkgData.diskLoc / "objects"):
-      logCtx.info("Caching metadata for " & pid)
       pkgData.cloneBare(logCtx)
     else:
       pkgData.fetch(logCtx) # Fast fetch
