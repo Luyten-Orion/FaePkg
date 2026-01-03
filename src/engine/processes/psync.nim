@@ -6,7 +6,8 @@ import std/[
   tables,
   sets,
   json,
-  os
+  os,
+  uri
 ]
 
 import pkg/parsetoml
@@ -34,6 +35,7 @@ import engine/foreign/nimble/[
   registry
 ]
 
+import engine/lock
 import engine/processes/contexts
 import engine/processes/sync/reporting
 
@@ -120,6 +122,48 @@ proc getResolvedConstraint*(
   result.id = unresPkg.data.id & "@" & $unresPkg.constr.unsafeGet().lo.major
   result.constr = unresPkg.constr.unsafeGet()
 
+
+proc populatePackagesFromLock(
+  ctx: SyncProcessCtx,
+  lockFile: LockFile,
+  logCtx: LoggerContext
+) =
+  let logCtx = logCtx.with("lock-loader")
+  for dep in lockFile.dependencies:
+    let baseId = dep.name
+    
+    var pid: string
+    if dep.refr.isSome:
+      pid = baseId & "#" & dep.refr.get()
+    elif dep.version.isSome:
+      pid = baseId & "@" & $dep.version.unsafeGet().major
+    else:
+      logCtx.warn("Skipping locked dependency with no version or ref: " & baseId)
+      continue
+
+    var pkgData = PackageData(
+      id: pid,
+      origin: dep.origin,
+      loc: parseUri(dep.src),
+      subdir: dep.subDir,
+      srcDir: dep.srcDir,
+      entrypoint: dep.entrypoint
+    )
+
+    pkgData.diskLoc = ctx.projPath / ".skull" / "cache" / pkgData.getFolderName()
+  
+    var pkg = Package(
+      data: pkgData,
+      isPseudo: false
+    )
+
+    pkg.refr = dep.commit
+
+    if dep.version.isSome:
+      let ver = dep.version.unsafeGet()
+      pkg.constr = FaeVerConstraint(lo: ver, hi: ver)
+    
+    ctx.packages[pid] = pkg
 
 proc initRootPackage(
   ctx: SyncProcessCtx,
@@ -422,10 +466,35 @@ proc synchronise*(projPath: string, logCtx: LoggerContext) =
   # Initialise the root...
   ctx.rootPkgId = ctx.initRootPackage(logCtx)
 
-  # Resolution go brrr
-  var resolveGraph = true
-  while resolveGraph:
-    resolveGraph = ctx.advanceResolution(logCtx)
+  # Try to load lock file
+  var lockFileLoaded = false
+  let lockFilePath = ctx.projPath / "fae-lock.toml"
+  if fileExists(lockFilePath):
+    try:
+      let lockFile = fromToml(LockFile, parsetoml.parseFile(lockFilePath))
+      ctx.populatePackagesFromLock(lockFile, logCtx)
+      
+      for pid, pkg in ctx.packages:
+        if pid == ctx.rootPkgId: continue
+        if not dirExists(pkg.data.diskLoc / "objects"):
+          pkg.data.cloneBare(logCtx)
+        else:
+          pkg.data.fetch(logCtx)
+
+      lockFileLoaded = true
+      logCtx.info("Loaded dependencies from lock file.")
+    except CatchableError:
+      logCtx.warn("Invalid lock file found, resolving dependencies. Error: " & getCurrentExceptionMsg())
+
+  if not lockFileLoaded:
+    # Resolution go brrr
+    var resolveGraph = true
+    while resolveGraph:
+      resolveGraph = ctx.advanceResolution(logCtx)
+
+    # Generate and write lock file
+    let lockFile = fromSyncCtx(ctx, logCtx)
+    writeFile(lockFilePath, dumpToml(lockFile))
 
   for pid, pkg in ctx.packages:
     # TODO: Make it a list rather than a single ID to exclude (for workspace support)
@@ -435,7 +504,7 @@ proc synchronise*(projPath: string, logCtx: LoggerContext) =
     
     # Clones from cache to install dir
     pkg.data.installToSite(installDir, pkg.refr, logCtx)
-    
+      
     # If the cache contains the manifest, yoink it since we generated it
     let cachedManifest = pkg.data.diskLoc / "package.skull.toml"
     if fileExists(cachedManifest):

@@ -3,6 +3,7 @@ import std/[
 ]
 
 import engine/faever
+import engine/private/tomlhelpers
 
 const LockFileVersion* = 0
 
@@ -20,8 +21,9 @@ type
     # The expanded URL the dependency expands to.
     src*: string
     # The version the dependency has currently been resolved to
-    version*: FaeVer
+    version*: Option[FaeVer]
     # The ref that the version points to, if supplied by the user
     refr*: Option[string]
-    # The directory on disk (relative to the root of the manifest)
-    dir*: Option[string]
+    subDir* {.rename: "sub-dir".}: string
+    srcDir* {.rename: "src-dir".}: string
+    entrypoint*: Option[string]
