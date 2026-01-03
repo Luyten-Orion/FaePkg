@@ -1,0 +1,10 @@
+format = 0
+[[dependencies]]
+name = "github.com/nimparsers/parsetoml"
+commit = "d297f5a81be2472905d367aa675dcbbca6e7a5d2"
+origin = "git"
+src = "https://github.com/nimparsers/parsetoml"
+refr = "v0.7.2"
+sub-dir = ""
+src-dir = "src"
+entrypoint = "parsetoml"

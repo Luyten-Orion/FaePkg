@@ -100,7 +100,6 @@ proc registerDependency(
   )
   ctx.unresolved.mgetOrPut(dependentId, @[]).add(unresPkg)
 
-
 proc getResolvedConstraint*(
   ctx: SyncProcessCtx,
   unresPkg: UnresolvedPackage,
@@ -121,6 +120,16 @@ proc getResolvedConstraint*(
 
   result.id = unresPkg.data.id & "@" & $unresPkg.constr.unsafeGet().lo.major
   result.constr = unresPkg.constr.unsafeGet()
+
+
+proc getCachePath(ctx: SyncProcessCtx, pkgData: PackageData): string =
+  var cleanData = pkgData
+  cleanData.id = pkgData.id.stripPidMarkers()
+  return ctx.projPath / ".skull" / "cache" / cleanData.getFolderName()
+
+proc getInstallPath(ctx: SyncProcessCtx, pkg: Package): string =
+  let folderName = pkg.data.getFolderName() & "_" & pkg.refr.replace("/", "_")
+  return ctx.projPath / ".skull" / "packages" / folderName
 
 
 proc populatePackagesFromLock(
@@ -150,7 +159,7 @@ proc populatePackagesFromLock(
       entrypoint: dep.entrypoint
     )
 
-    pkgData.diskLoc = ctx.projPath / ".skull" / "cache" / pkgData.getFolderName()
+    pkgData.diskLoc = ctx.getCachePath(pkgData)
   
     var pkg = Package(
       data: pkgData,
@@ -307,13 +316,13 @@ proc advanceResolution(
       pkgData.id = pid
 
     # Point to the Bare Cache
-    pkgData.diskLoc = ctx.projPath / ".skull" / "cache" / pkgData.getFolderName()
+    pkgData.diskLoc = ctx.getCachePath(pkgData)
     
-    # 3a. Update/Clone Bare Repo
+    # Update/Clone Bare Repo
     if not dirExists(pkgData.diskLoc / "objects"):
       pkgData.cloneBare(logCtx)
     else:
-      pkgData.fetch(logCtx) # Fast fetch
+      pkgData.fetch(logCtx)
 
     # Resolution
     var finalPkg: Package
@@ -388,8 +397,7 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
     if pid == ctx.rootPkgId:
       installLoc = "."
     else:
-      let folderName = pkg.data.getFolderName()
-      installLoc = toUnixPath(".skull" / "packages" / folderName)
+      installLoc = toUnixPath(ctx.getInstallPath(pkg).relativePath(ctx.projPath))
 
     # Initialize the package entry
     var idxPkg = IndexedPackage(
@@ -482,9 +490,8 @@ proc synchronise*(projPath: string, logCtx: LoggerContext) =
           pkg.data.fetch(logCtx)
 
       lockFileLoaded = true
-      logCtx.info("Loaded dependencies from lock file.")
     except CatchableError:
-      logCtx.warn("Invalid lock file found, resolving dependencies. Error: " & getCurrentExceptionMsg())
+      logCtx.warn("Malformed lockfile found: " & getCurrentExceptionMsg())
 
   if not lockFileLoaded:
     # Resolution go brrr
@@ -500,7 +507,7 @@ proc synchronise*(projPath: string, logCtx: LoggerContext) =
     # TODO: Make it a list rather than a single ID to exclude (for workspace support)
     if pid == ctx.rootPkgId: continue # Skip root
     
-    let installDir = ctx.projPath / ".skull" / "packages" / pkg.data.getFolderName()
+    let installDir = ctx.getInstallPath(pkg)
     
     # Clones from cache to install dir
     pkg.data.installToSite(installDir, pkg.refr, logCtx)

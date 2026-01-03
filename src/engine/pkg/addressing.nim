@@ -48,7 +48,7 @@ proc getFolderName*(src: PackageData): string =
       elif c.isUpperAscii:
         res.add('!')
         res.add(c.toLowerAscii)
-      elif c notin {'a'..'z', '0'..'9', '@', '.'}:
+      elif c notin {'a'..'z', '0'..'9', '@', '#', '.'}:
         res.add('_')
         res.add toHex(c.byte).toLowerAscii
       else:
