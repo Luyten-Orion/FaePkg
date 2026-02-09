@@ -5,7 +5,7 @@ import std/[
 
 from std/sugar import `->`
 
-import pkg/parsetoml
+import parsetoml
 
 import logging
 import engine/faever

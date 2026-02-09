@@ -9,7 +9,7 @@ import std/[
 
 import experimental/results
 
-import pkg/parsetoml
+import parsetoml
 
 import engine/private/tomlhelpers
 

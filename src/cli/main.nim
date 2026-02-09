@@ -8,7 +8,7 @@ import std/[
 ]
 import experimental/cmdline
 
-import pkg/parsetoml
+import parsetoml
 
 import logging
 

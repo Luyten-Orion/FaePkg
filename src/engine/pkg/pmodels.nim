@@ -1,5 +1,5 @@
 import std/[uri, tables, options]
-import pkg/parsetoml
+import parsetoml
 import engine/[
   faever,
   schema
@@ -33,7 +33,7 @@ type
   # Dependent -> Dependencies
   DependencyLink* = object
     package*: string
-    namespace*: string
+    alias*: string
 
   # Flattened info for the index
   IndexedPackage* = object

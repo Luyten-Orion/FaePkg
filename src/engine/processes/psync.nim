@@ -10,11 +10,10 @@ import std/[
   uri
 ]
 
-import pkg/parsetoml
+import parsetoml
 
 import logging
 import engine/private/[
-  misc,
   tomlhelpers
 ]
 import engine/[
@@ -408,14 +407,14 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
     )
 
     # Add self-reference asap
-    let namespace = if pkg.data.entrypoint.isSome:
+    let alias = if pkg.data.entrypoint.isSome:
         pkg.data.entrypoint.unsafeGet()
       else:
         pkg.data.id.stripPidMarkers().split('/')[^1].replace("-", "_")
 
     idxPkg.dependencies.add DependencyLink(
       package: fullId,
-      namespace: namespace
+      alias: alias
     )
 
     result.packages[fullId] = idxPkg
@@ -442,6 +441,12 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
             if edge.dependencyId.startsWith(declaredIdStart):
               resolvedPID = some(edge.dependencyId)
               break
+        else:
+          # Fallback for lockfiles where the graph isn't built
+          for targetPid in ctx.packages.keys():
+            if targetPid.startsWith(declaredIdStart):
+              resolvedPID = some(targetPid)
+              break
         
         if resolvedPID.isSome():
           let targetPid = resolvedPID.unsafeGet()
@@ -451,7 +456,7 @@ proc generateIndex*(ctx: SyncProcessCtx, logCtx: LoggerContext): FaeIndex =
             # Append directly to the package's dependency list
             result.packages[fullId].dependencies.add DependencyLink(
               package: targetFullId,
-              namespace: alias
+              alias: alias
             )
 
     except Exception as e:

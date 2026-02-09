@@ -1,11 +1,9 @@
 import std/[
-  strutils,
   options,
-  tables,
-  uri
+  tables
 ]
 
-import pkg/parsetoml
+import parsetoml
 
 import engine/faever
 import engine/private/tomlhelpers
