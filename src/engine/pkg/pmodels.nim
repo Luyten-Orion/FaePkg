@@ -1,6 +1,6 @@
 import std/[uri, tables, options]
 import parsetoml
-import engine/[
+import faepkg/engine/[
   faever,
   schema
 ]

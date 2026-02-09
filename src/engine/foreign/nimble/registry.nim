@@ -8,7 +8,7 @@ import std/[
   tables
 ]
 
-import logging
+import faepkg/logging
 
 const FaeCompatNimblePkgsUrl {.strdefine.} = "https://raw.githubusercontent.com/nim-lang/packages/refs/heads/master/packages.json"
 

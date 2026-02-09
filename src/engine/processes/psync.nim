@@ -12,31 +12,31 @@ import std/[
 
 import parsetoml
 
-import logging
-import engine/private/[
+import faepkg/logging
+import faepkg/engine/private/[
   tomlhelpers
 ]
-import engine/[
+import faepkg/engine/[
   faever,
   schema,
   resolution,
   adapters
 ]
 
-import engine/pkg/[
+import faepkg/engine/pkg/[
   addressing,
   pmodels,
   io
 ]
 
-import engine/foreign/nimble/[
+import faepkg/engine/foreign/nimble/[
   bridge,
   registry
 ]
 
-import engine/lock
-import engine/processes/contexts
-import engine/processes/sync/reporting
+import faepkg/engine/lock
+import faepkg/engine/processes/contexts
+import faepkg/engine/processes/sync/reporting
 
 proc init(
   T: typedesc[Package],
@@ -162,7 +162,7 @@ proc populatePackagesFromLock(
   
     var pkg = Package(
       data: pkgData,
-      isPseudo: false
+      isPseudo: dep.isPseudo
     )
 
     pkg.refr = dep.commit
@@ -187,7 +187,12 @@ proc initRootPackage(
     quit(1)
 
   result = rMan.package.name
-  var pkgData = PackageData(id: result, diskLoc: ctx.projPath, srcDir: rMan.package.srcDir)
+  var pkgData = PackageData(
+    id: result,
+    diskLoc: ctx.projPath,
+    srcDir: rMan.package.srcDir,
+    loc: parseUri("https://" & rMan.package.name)
+  )
   let originCtx = pkgData.toOriginCtx(logCtx)
 
   for origin in origins.keys:

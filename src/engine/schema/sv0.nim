@@ -5,8 +5,8 @@ import std/[
 
 import parsetoml
 
-import engine/faever
-import engine/private/tomlhelpers
+import faepkg/engine/faever
+import faepkg/engine/private/tomlhelpers
 
 type
   PkgMngrKind* = enum

@@ -2,8 +2,8 @@ import std/[
   options
 ]
 
-import engine/faever
-import engine/private/tomlhelpers
+import faepkg/engine/faever
+import faepkg/engine/private/tomlhelpers
 
 const LockFileVersion* = 0
 
@@ -27,3 +27,4 @@ type
     subDir* {.rename: "sub-dir".}: string
     srcDir* {.rename: "src-dir".}: string
     entrypoint*: Option[string]
+    isPseudo* {.rename: "is-pseudo".}: bool

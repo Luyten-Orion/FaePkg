@@ -6,8 +6,8 @@ import std/[
   sets
 ]
 
-import logging
-import engine/[schema, faever]
+import faepkg/logging
+import faepkg/engine/[schema, faever]
 
 
 type

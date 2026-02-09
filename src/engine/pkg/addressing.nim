@@ -1,11 +1,11 @@
 import std/[strutils, sequtils, strformat, options, uri, os]
 
-import logging
-import engine/[
+import faepkg/logging
+import faepkg/engine/[
   faever,
   schema
 ]
-import engine/pkg/[
+import faepkg/engine/pkg/[
   pmodels
 ]
 

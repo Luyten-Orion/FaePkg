@@ -1,5 +1,5 @@
 import std/[tables, strutils]
-import engine/resolution
+import faepkg/engine/resolution
 
 type
   ConflictReport = object

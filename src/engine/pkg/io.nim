@@ -1,15 +1,15 @@
 # src/engine/pkg/io.nim
 import std/[strutils, options, tables, uri, os]
-import engine/pkg/[
+import faepkg/engine/pkg/[
   addressing,
   pmodels
 ]
-import engine/[
+import faepkg/engine/[
   adapters,
   faever
 ]
-import engine/adapters/git
-import logging
+import faepkg/engine/adapters/git
+import faepkg/logging
 
 proc toOriginCtx*(pkg: PackageData, logCtx: LoggerContext): OriginContext =
   OriginContext.init(pkg.diskLoc, logCtx)

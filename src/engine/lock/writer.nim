@@ -9,13 +9,13 @@ import std/[
 import parsetoml
 import experimental/results
 
-import logging
-import engine/faever
-import engine/lock/lv0
-import engine/private/tomlhelpers
-import engine/processes/contexts
-import engine/pkg/[io, addressing, pmodels]
-import engine/adapters
+import faepkg/logging
+import faepkg/engine/faever
+import faepkg/engine/lock/lv0
+import faepkg/engine/private/tomlhelpers
+import faepkg/engine/processes/contexts
+import faepkg/engine/pkg/[io, addressing, pmodels]
+import faepkg/engine/adapters
 
 
 proc fromSyncCtx*(ctx: SyncProcessCtx, logCtx: LoggerContext): LockFile =
@@ -25,7 +25,7 @@ proc fromSyncCtx*(ctx: SyncProcessCtx, logCtx: LoggerContext): LockFile =
 
   for pid, pkg in ctx.packages:
     if pid == ctx.rootPkgId: continue
-
+    
     let adapter = origins[pkg.data.origin]
     let originCtx = pkg.data.toOriginCtx(logCtx)
     
@@ -48,12 +48,11 @@ proc fromSyncCtx*(ctx: SyncProcessCtx, logCtx: LoggerContext): LockFile =
       src: src,
       srcDir: pkg.data.srcDir,
       subDir: pkg.data.subdir,
-      entrypoint: pkg.data.entrypoint
+      entrypoint: pkg.data.entrypoint,
+      isPseudo: pkg.isPseudo
     )
-    if pkg.refr.len > 0:
-      dep.refr = some(pkg.refr)
-    else:
-      dep.version = some(pkg.constr.lo)
+    dep.refr = some(pkg.refr)
+    dep.version = some(pkg.constr.lo)
 
     result.dependencies.add(dep)
   

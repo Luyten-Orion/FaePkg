@@ -1,6 +1,6 @@
 import std/tables
-import engine/pkg/pmodels
-import engine/resolution
+import faepkg/engine/pkg/pmodels
+import faepkg/engine/resolution
 
 type
   SyncProcessCtx* = ref object

@@ -1,5 +1,5 @@
-import logging
-import engine/processes/psync
+import faepkg/logging
+import faepkg/engine/ processes/psync
 
 type
   FaeCmdKind* = enum

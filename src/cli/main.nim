@@ -10,21 +10,21 @@ import experimental/cmdline
 
 import parsetoml
 
-import logging
+import faepkg/logging
 
-import engine/[
+import faepkg/engine/[
   faever,
   schema,
   lock,
   resolution
 ]
-import engine/adapters/[
+import faepkg/engine/adapters/[
   common,
   git
 ]
 
 
-import cli/cmds
+import faepkg/cli/cmds
 
 randomize()
 

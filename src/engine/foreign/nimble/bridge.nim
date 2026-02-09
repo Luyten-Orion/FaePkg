@@ -1,18 +1,18 @@
 import std/[os, tables, uri, options, parseutils, strutils, sequtils, htmlparser, xmltree, httpclient]
 import experimental/results
-import logging
-import engine/[faever, schema, adapters]
-import engine/pkg/[
+import faepkg/logging
+import faepkg/engine/[faever, schema, adapters]
+import faepkg/engine/pkg/[
   pmodels,
   addressing,
   io
 ]
-import engine/processes/contexts
-import engine/foreign/nimble/[
+import faepkg/engine/processes/contexts
+import faepkg/engine/foreign/nimble/[
   manifest,
   registry
 ]
-import engine/private/[tomlhelpers, misc]
+import faepkg/engine/private/[tomlhelpers, misc]
 
 # TODO: Add more forges
 const HardcodedVcsInfo: Table[string, seq[string]] = {

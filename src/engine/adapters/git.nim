@@ -13,9 +13,9 @@ import experimental/results
 
 #import gittyup
 
-import engine/adapters/common
-import engine/faever
-import logging
+import faepkg/engine/adapters/common
+import faepkg/engine/faever
+import faepkg/logging
 
 
 # TODO: Figure out how to do this in a non-blocking way

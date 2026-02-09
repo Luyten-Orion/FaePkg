@@ -1,3 +1,3 @@
-import engine/schema/sv0
+import faepkg/engine/schema/sv0
 
 export sv0
