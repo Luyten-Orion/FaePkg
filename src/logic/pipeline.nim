@@ -53,8 +53,10 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
   processedUrls.incl(rootUrlId)
 
   if fileExists(lockfilePath):
-    logCtx.info("Ingesting fae-lock.toml anchors...")
-    parseLockfile(logCtx, readFile(lockfilePath), symbols, registry)
+    logCtx.info("Checking fae-lock.toml...")
+    let lockValid = parseLockfile(logCtx, readFile(lockfilePath), rootTomlStr, symbols, registry)
+    if not lockValid:
+      logCtx.info("Lockfile invalidated. Will resolve graph from scratch.")
 
   parseManifest(logCtx, rootTomlStr, symbols, registry, rootId)
 
@@ -187,7 +189,7 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
 
   generateIndexJson(logCtx, projPath, symbols, registry, res.resolved)
   
-  let lockOutput = generateLockfile(symbols, registry, res.resolved)
+  let lockOutput = generateLockfile(symbols, registry, res.resolved, rootTomlStr)
   writeFile(projPath / "fae-lock.toml", lockOutput)
   logCtx.info("Wrote fae-lock.toml")
 

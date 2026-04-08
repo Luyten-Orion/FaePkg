@@ -1,4 +1,5 @@
 format = 0
+manifest-hash = "846EE29A0F72D0A6A000E4DF552AAFA074F8350C"
 
 [[dependencies]]
 name = "parsetoml"

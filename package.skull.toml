@@ -5,18 +5,17 @@ format = 0
 name = "github.com/luyten-orion/faepkg"
 
 [dependencies.parsetoml]
-src        = "github.com/nimparsers/parsetoml"
-origin     = "git"
-scheme     = "https"
-#subdir     = "path/to/pkg/in/repo"
+src = "https://github.com/nimparsers/parsetoml.git"
+# for subdirs: "https://github.com/nimparsers/parsetoml.git/subdir/if/applicable"
 version    = "0.7.2"
 foreign-pm = "nimble"
 
 # Proposed syntax
 #[features]
 #defaults = ["foo", "bar"]
+#groupa = ["foo", "alttoml"]
+#groupb = ["bar", "richlog"]
 
-# Accessible to code via `defined(github.com/luyten-orion/faepkg.features.foo)`
 #[features.foo.dependencies.alttoml]
 #src        = "foo.bar/alttoml"
 #origin     = "git"

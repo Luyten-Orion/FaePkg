@@ -1,11 +1,23 @@
-import std/tables
+import std/[strutils, tables, sha1]
 import parsetoml
 import faepkg/logging
 import faepkg/core/[types, interner, state]
 import faepkg/logic/manifest # For parseFaeVer
 
-proc generateLockfile*(symbols: SymbolTable, registry: RegistryState, resolved: seq[ResolvedPackage]): string =
-  var outStr = "format = 0\n\n"
+proc getDependenciesHash*(tomlStr: string): string =
+  ## Generates a stable SHA1 hash of the [dependencies] table.
+  try:
+    let toml = parsetoml.parseString(tomlStr)
+    if toml.hasKey("dependencies"):
+      return $secureHash($toml["dependencies"])
+  except CatchableError:
+    discard
+  return $secureHash("")
+
+proc generateLockfile*(symbols: SymbolTable, registry: RegistryState, resolved: seq[ResolvedPackage], rootManifestStr: string): string =
+  let manifestHash = getDependenciesHash(rootManifestStr)
+  var outStr = "format = 0\n"
+  outStr &= "manifest-hash = \"" & manifestHash & "\"\n\n"
   
   for pkg in resolved:
     let record = registry.packages[pkg.id.uint32]
@@ -39,23 +51,40 @@ proc generateLockfile*(symbols: SymbolTable, registry: RegistryState, resolved: 
   
   return outStr
 
-proc parseLockfile*(logCtx: LoggerContext, tomlStr: string, symbols: var SymbolTable, registry: var RegistryState) =
+proc parseLockfile*(logCtx: LoggerContext, tomlStr: string, rootManifestStr: string, symbols: var SymbolTable, registry: var RegistryState): bool =
+  ## Returns true if the lockfile was successfully loaded, false if it was invalidated.
   let
     logCtx = logCtx.with("lockfile")
     toml = parsetoml.parseString(tomlStr)
+    currentHash = getDependenciesHash(rootManifestStr)
 
-  if not toml.hasKey("dependencies"): return
+  if toml.hasKey("manifest-hash"):
+    let lockedHash = toml["manifest-hash"].getStr()
+    if lockedHash != currentHash:
+      logCtx.info("Manifest dependencies have changed. Invalidating lockfile...")
+      return false
+  else:
+    logCtx.info("Lockfile missing manifest-hash. Invalidating...")
+    return false
+
+  if not toml.hasKey("dependencies"): return true
   
   let depsArray = toml["dependencies"]
-  if depsArray.kind != TomlValueKind.Array: return
+  if depsArray.kind != TomlValueKind.Array: return true
 
   for depNode in depsArray.getElems():
     if depNode.kind != TomlValueKind.Table: continue
     let
       t = depNode.getTable()
-      # Extract fields safely
       name = if t.hasKey("name"): t["name"].getStr() else: ""
-      url = if t.hasKey("src"): t["src"].getStr() else: ""
+    var url = if t.hasKey("src"): t["src"].getStr() else: ""
+    
+    # Clean up legacy lockfile pollution
+    if url.startsWith("https://"): url = url[8..^1]
+    elif url.startsWith("http://"): url = url[7..^1]
+    if url.endsWith(".git"): url = url[0..^5]
+
+    let
       commit = if t.hasKey("commit"): t["commit"].getStr() else: ""
       origin = if t.hasKey("origin"): t["origin"].getStr() else: "git"
       srcDir = if t.hasKey("src-dir"): t["src-dir"].getStr() else: ""
@@ -63,12 +92,11 @@ proc parseLockfile*(logCtx: LoggerContext, tomlStr: string, symbols: var SymbolT
       entrypoint = if t.hasKey("entrypoint"): t["entrypoint"].getStr() else: ""
       isPseudo = t.hasKey("is-pseudo") and t["is-pseudo"].getBool()
     
-    # We must construct a constraint parse string to utilize `parseConstraint`
     var versionVal = FaeVer()
     if t.hasKey("version"):
       let
         verStr = t["version"].getStr()
-        constr = parseConstraint("==" & verStr) # Force absolute parsing
+        constr = parseConstraint("==" & verStr)
       versionVal = constr.lo
 
     var flags: set[PackageFlags] = {pfLocked} # Bypass the solver
@@ -89,3 +117,4 @@ proc parseLockfile*(logCtx: LoggerContext, tomlStr: string, symbols: var SymbolT
     discard registry.addPackage(record)
   
   logCtx.info("Loaded " & $registry.packages.len & " locked dependencies.")
+  return true

@@ -117,38 +117,56 @@ proc parseManifest*(
       logCtx.error("Dependency alias '" & alias & "' is missing 'src' URL.")
       quit(1)
 
-    let
-      srcUrl = depTable["src"].getStr()
-      urlId = symbols.getOrPut(srcUrl)
+    let fullSrc = depTable["src"].getStr()
+    var 
+      cleanUrl = fullSrc
+      depSubdir = ""
+
+    # Legacy fallback
+    if depTable.hasKey("subdir"):
+      depSubdir = depTable["subdir"].getStr()
+
+    let originStr = if depTable.hasKey("origin"): depTable["origin"].getStr() else: "git"
+
+    let gitIdx = fullSrc.find(".git")
+    if gitIdx != -1:
+      cleanUrl = fullSrc[0 ..< gitIdx]
+      
+      if depSubdir == "" and gitIdx + 4 < fullSrc.len and fullSrc[gitIdx + 4] == '/':
+        depSubdir = fullSrc[gitIdx + 5 .. ^1]
+
+    # Strip HTTP/HTTPS scheme and any trailing .git to maintain canonical string IDs
+    if cleanUrl.startsWith("https://"): cleanUrl = cleanUrl[8..^1]
+    elif cleanUrl.startsWith("http://"): cleanUrl = cleanUrl[7..^1]
+    if cleanUrl.endsWith(".git"): cleanUrl = cleanUrl[0..^5]
+
+    # We ignore the legacy 'scheme' key entirely now, as pipeline.nim explicitly prepends
+    # https:// for standard git operations anyway, which handles 99% of use cases cleanly.
+    # TODO: Make it so we can choose between `ssh` and `https`/`http` as a global option?
+
+    let urlId = symbols.getOrPut(cleanUrl)
     
     var constr = FaeVerConstraint(lo: FaeVer(), hi: FaeVer(major: int.high))
     if depTable.hasKey("version"):
       constr = parseConstraint(depTable["version"].getStr())
 
-    let
-      originStr = if depTable.hasKey("origin"): depTable["origin"].getStr() else: "git"
-      originId = symbols.getOrPut(originStr)
-
     var pkgFlags: set[PackageFlags] = {}
     if depTable.hasKey("foreign-pm") and depTable["foreign-pm"].getStr() == "nimble":
       pkgFlags.incl(pfForeignNimble)
 
-    var depSubdir = ""
-    if depTable.hasKey("subdir"):
-      depSubdir = depTable["subdir"].getStr()
-
+    let record = PackageRecord(
+      nameId: symbols.getOrPut(alias),
+      originId: symbols.getOrPut(originStr),
+      urlId: urlId,
+      commitId: symbols.getOrPut(""),
+      srcDirId: symbols.getOrPut(""),     
+      entrypointId: symbols.getOrPut(""), 
+      subdirId: symbols.getOrPut(depSubdir),
+      version: FaeVer(),
+      flags: pkgFlags
+    )
+    
     let
-      record = PackageRecord(
-        nameId: symbols.getOrPut(alias),
-        originId: originId,
-        urlId: urlId,
-        commitId: symbols.getOrPut(""),
-        srcDirId: symbols.getOrPut(""),     
-        entrypointId: symbols.getOrPut(""), 
-        subdirId: symbols.getOrPut(depSubdir),
-        version: FaeVer(),
-        flags: pkgFlags
-      )
       dependencyId = registry.addPackage(record)
       constraintId = registry.addConstraint(constr)
 
