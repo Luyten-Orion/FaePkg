@@ -116,5 +116,5 @@ proc parseLockfile*(logCtx: LoggerContext, tomlStr: string, rootManifestStr: str
 
     discard registry.addPackage(record)
   
-  logCtx.info("Loaded " & $registry.packages.len & " locked dependencies.")
+  logCtx.debug("Loaded " & $registry.packages.len & " locked dependencies.")
   return true

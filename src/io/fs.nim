@@ -119,4 +119,4 @@ proc generateIndexJson*(
 
   let indexPath = projPath / ".skull" / "index.json"
   writeFile(indexPath, rootNode.pretty())
-  logCtx.info("Wrote index.json to " & indexPath)
+  logCtx.debug("Wrote index.json to " & indexPath)

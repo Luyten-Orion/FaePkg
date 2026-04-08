@@ -7,8 +7,6 @@ import faepkg/io/[git, fs, network]
 import faepkg/foreign/nimble
 
 proc executeSync*(projPath: string, logCtx: LoggerContext) =
-  logCtx.info("Starting FaePkg Sync (DOD Engine)...")
-
   var
     symbols = initSymbolTable()
     registry = initRegistryState()
@@ -16,7 +14,7 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
     queue: seq[PackageId] = @[]
 
   # --- PHASE 1: DISCOVERY (I/O) ---
-  logCtx.info("Phase 1: Discovering dependencies...")
+  logCtx.debug("Discovering dependencies...")
   
   let rootTomlPath = projPath / "package.skull.toml"
   if not fileExists(rootTomlPath):
@@ -27,13 +25,11 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
     rootTomlStr = readFile(rootTomlPath)
     rootTomlNode = parsetoml.parseString(rootTomlStr)
 
-  # Extract root package name
   var rootName = "root"
   if rootTomlNode.hasKey("package") and rootTomlNode["package"].kind == TomlValueKind.Table:
     let pkgTable = rootTomlNode["package"].getTable()
     if pkgTable.hasKey("name"): rootName = pkgTable["name"].getStr()
 
-  # Register Root Package
   let
     rootUrlId = symbols.getOrPut(rootName) 
     rootId = registry.addPackage(PackageRecord(
@@ -53,10 +49,11 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
   processedUrls.incl(rootUrlId)
 
   if fileExists(lockfilePath):
-    logCtx.info("Checking fae-lock.toml...")
+    logCtx.debug("Checking `fae-lock.toml`...")
     let lockValid = parseLockfile(logCtx, readFile(lockfilePath), rootTomlStr, symbols, registry)
     if not lockValid:
-      logCtx.info("Lockfile invalidated. Will resolve graph from scratch.")
+      logCtx.info("Lockfile invalidated. Rebuilding...")
+      removeFile(lockfilePath)
 
   parseManifest(logCtx, rootTomlStr, symbols, registry, rootId)
 
@@ -64,7 +61,6 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
     if edge.dependent == rootId:
       queue.add(edge.dependency)
 
-  # Discovery Loop
   while queue.len > 0:
     let targetId = queue.pop()
     var
@@ -72,7 +68,6 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
       rawUrl = symbols.getString(record.urlId)
     let subdirStr = symbols.getString(record.subdirId)
 
-    # 1. Nimble Override
     if pfForeignNimble in record.flags and "/" notin rawUrl:
       initNimbleCompat(projPath, logCtx)
       let resolvedMap = resolveNimbleNames(projPath, [rawUrl], logCtx)
@@ -82,8 +77,12 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
         registry.packages[targetId.uint32].urlId = newUrlId
         record.urlId = newUrlId
 
-    # 2. Go-get resolution
     rawUrl = resolveGoGet(logCtx, rawUrl)
+    
+    if rawUrl.startsWith("https://"): rawUrl = rawUrl[8..^1]
+    elif rawUrl.startsWith("http://"): rawUrl = rawUrl[7..^1]
+    if rawUrl.endsWith(".git"): rawUrl = rawUrl[0..^5]
+
     if rawUrl != symbols.getString(record.urlId):
       let resolvedId = symbols.getOrPut(rawUrl)
       registry.packages[targetId.uint32].urlId = resolvedId
@@ -100,17 +99,12 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
     else:
       discard fetch(logCtx, cacheDir)
 
-    # 3. Handle specific git hashes (Pseudoversions)
-    # If the constraint mandates a `#hash`, we generate a deterministic FaeVer here.
-    # We will search the constraints for this edge to see if a pseudoversion applies.
     for edge in registry.edges:
       if edge.dependency == targetId:
         let constr = registry.constraints[edge.constraint.uint32]
-        # Check if the prerelease implies a hash (fallback convention)
         if constr.lo.prerelease != "" and not constr.lo.prerelease.contains('.'):
           let pseudoOpt = generatePseudoversion(logCtx, cacheDir, constr.lo.prerelease)
           if pseudoOpt.isSome:
-            # Overwrite the constraint with the absolute synthesized truth
             registry.constraints[edge.constraint.uint32] = FaeVerConstraint(lo: pseudoOpt.get(), hi: pseudoOpt.get())
             registry.packages[targetId.uint32].flags.incl(pfIsPseudo)
 
@@ -139,18 +133,18 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
           queue.add(registry.edges[i].dependency)
 
   # --- PHASE 2: RESOLUTION (Pure Compute) ---
-  logCtx.info("Phase 2: Resolving graph constraints...")
+  logCtx.debug("Resolving graph...")
   let res = resolveGraph(registry)
 
   if not res.success:
     logCtx.error("Dependency conflict detected!")
-    for badUrlId in res.conflicts: # <-- FIXED: Unpacking StringId directly
+    for badUrlId in res.conflicts: 
       let url = symbols.getString(badUrlId)
       logCtx.error(" -> Conflict on package: " & url)
     quit(1)
 
   # --- PHASE 3: MATERIALIZATION (I/O) ---
-  logCtx.info("Phase 3: Materializing packages to disk...")
+  logCtx.debug("Materializing dependencies...")
   
   for pkg in res.resolved:
     let record = registry.packages[pkg.id.uint32]
@@ -161,7 +155,6 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
       versionRef = "v" & $pkg.version.major & "." & $pkg.version.minor & "." & $pkg.version.patch
       cacheDir = getCachePath(projPath, url)
     
-      # Prefer exact hash if already provided via pseudoversion, else resolve semantic tag
       commitHashOpt =
         if pfIsPseudo in record.flags: some(pkg.version.prerelease.split(".g")[^1]) 
         else: resolveRef(logCtx, cacheDir, versionRef)
@@ -191,6 +184,6 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
   
   let lockOutput = generateLockfile(symbols, registry, res.resolved, rootTomlStr)
   writeFile(projPath / "fae-lock.toml", lockOutput)
-  logCtx.info("Wrote fae-lock.toml")
+  logCtx.debug("Wrote fae-lock.toml") # Demoted
 
-  logCtx.info("Synchronization complete.")
+  logCtx.info("Dependencies synced.")
