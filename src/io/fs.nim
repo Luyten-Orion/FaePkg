@@ -28,7 +28,7 @@ proc generateIndexJson*(
 ) =
   let logCtx = logCtx.with("index-generator")
   var rootNode = %*{"packages": {}}
-  
+
   template toUnixPath(p: string): string =
     when defined(windows): p.replace('\\', '/') else: p
 
@@ -118,5 +118,6 @@ proc generateIndexJson*(
     rootNode["packages"][fullId] = pkgNode
 
   let indexPath = projPath / ".skull" / "index.json"
+  createDir(projPath / ".skull")
   writeFile(indexPath, rootNode.pretty())
   logCtx.debug("Wrote index.json to " & indexPath)
