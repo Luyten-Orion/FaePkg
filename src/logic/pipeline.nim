@@ -73,9 +73,9 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
     # 1. Nimble Override
     if pfForeignNimble in record.flags and "/" notin rawUrl:
       initNimbleCompat(projPath, logCtx)
-      let resolvedUrl = resolveNimbleName(projPath, rawUrl, logCtx)
-      if resolvedUrl != "":
-        rawUrl = resolvedUrl
+      let resolvedMap = resolveNimbleNames(projPath, [rawUrl], logCtx)
+      if resolvedMap.hasKey(rawUrl):
+        rawUrl = resolvedMap[rawUrl]
         let newUrlId = symbols.getOrPut(rawUrl)
         registry.packages[targetId.uint32].urlId = newUrlId
         record.urlId = newUrlId

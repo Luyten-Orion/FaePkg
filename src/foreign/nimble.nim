@@ -1,10 +1,13 @@
-import std/[httpclient, json, os, parsejson, streams, strutils, parseutils]
+import std/[httpclient, json, os, parsejson, streams, strutils, parseutils, tables]
 import faepkg/logging
 import faepkg/core/[types, interner, state]
 import faepkg/logic/manifest
 
 const FaeCompatNimblePkgsUrl {.strdefine.} = "https://raw.githubusercontent.com/nim-lang/packages/refs/heads/master/packages.json"
 var packagesJsonUpToDate = false
+
+# The In-Memory Cache
+var nimbleUrlCache = initTable[string, string]()
 
 proc initNimbleCompat*(projPath: string, logCtx: LoggerContext) =
   if packagesJsonUpToDate: return
@@ -29,8 +32,24 @@ proc initNimbleCompat*(projPath: string, logCtx: LoggerContext) =
     logCtx.warn("Failed to fetch `packages.json`. Using cached local copy.")
     packagesJsonUpToDate = true
 
-proc resolveNimbleName*(projPath: string, pkgName: string, logCtx: LoggerContext): string =
-  ## Scans the cached nimblepkgs.json to find the Git URL for a Nimble package name.
+proc resolveNimbleNames*(projPath: string, pkgNames: openArray[string], logCtx: LoggerContext): Table[string, string] =
+  ## Scans the cached nimblepkgs.json to find Git URLs for multiple Nimble package names.
+  ## Utilizes an in-memory cache to prevent redundant disk I/O.
+  
+  var missingNames: seq[string] = @[]
+  
+  # 1. Check Cache First
+  for name in pkgNames:
+    let lowerName = name.toLowerAscii()
+    if nimbleUrlCache.hasKey(lowerName):
+      result[name] = nimbleUrlCache[lowerName]
+    else:
+      missingNames.add(lowerName)
+
+  if missingNames.len == 0:
+    return result
+
+  # 2. Disk Fallback for Missing Names
   let
     path = projPath / ".skull" / "fae" / "nimblepkgs.json"
     pkgDataStrm = try:
@@ -45,8 +64,10 @@ proc resolveNimbleName*(projPath: string, pkgName: string, logCtx: LoggerContext
     parser.close()
     pkgDataStrm.close()
 
-  let targetName = pkgName.toLowerAscii()
-  var arrayLevel = 0
+  var
+    arrayLevel = 0
+    namesFound = 0
+  let targetCount = missingNames.len
 
   while true:
     parser.next()
@@ -68,21 +89,39 @@ proc resolveNimbleName*(projPath: string, pkgName: string, logCtx: LoggerContext
         if parser.kind() != jsonString: continue
         
         let key = parser.str().toLowerAscii()
-        parser.next() # Move to value
+        parser.next() 
         
         if key == "name":
           currentName = parser.str().toLowerAscii()
-          if currentName != targetName: skip = true
+          if currentName notin missingNames: skip = true
         elif key == "url":
           currentUrl = parser.str()
           
-        if currentName == targetName and currentUrl != "":
-          return currentUrl # Found it!
+        if currentName != "" and currentUrl != "" and not skip:
+          # Cache the result
+          nimbleUrlCache[currentName] = currentUrl
+          
+          # Map back to the original casing requested by the user
+          for orig in pkgNames:
+            if orig.toLowerAscii() == currentName:
+              result[orig] = currentUrl
+              break
+              
+          inc namesFound
+          skip = true
+          
+      # Halt the parser entirely if we found every missing dependency
+      if namesFound == targetCount:
+        return result
 
     else: discard
 
-  logCtx.warn("Could not resolve Nimble package name: " & pkgName)
-  return ""
+  # Log warnings for anything we failed to find
+  for missing in missingNames:
+    if not nimbleUrlCache.hasKey(missing):
+      logCtx.warn("Could not resolve Nimble package name: " & missing)
+
+  return result
 
 type
   NimbleManifest* = object
@@ -125,27 +164,35 @@ proc parseNimbleManifest*(
 ) =
   let
     man = parseNimble(fileName, content)
-    # 1. Store the exact srcDir and Entrypoint for Phase 3
     baseSrcDir = if man.srcDir != "": man.srcDir else: "src"
     finalSrcDir = baseSrcDir & "/" & man.packageName
 
   registry.packages[dependentId.uint32].srcDirId = symbols.getOrPut(finalSrcDir)
   registry.packages[dependentId.uint32].entrypointId = symbols.getOrPut("../" & man.packageName & ".nim")
 
-  # 2. Process Transitive Dependencies
+  # Pre-scan required names to execute a single batched lookup
+  var namesToResolve: seq[string] = @[]
+  for reqStr in man.requiresData:
+    var name = ""
+    discard parseUntil(reqStr, name, {'#', '=', '>', '<', '^', '~', ' '})
+    name = name.strip()
+    if name != "" and name notin ["nim", "compiler"] and "://" notin name:
+      namesToResolve.add(name)
+
+  let resolvedUrls = if namesToResolve.len > 0: resolveNimbleNames(projPath, namesToResolve, logCtx)
+                     else: initTable[string, string]()
+
+  # Process Transitive Dependencies
   for reqStr in man.requiresData:
     var name = ""
     let idx = parseUntil(reqStr, name, {'#', '=', '>', '<', '^', '~', ' '})
     name = name.strip()
     
-    # Ignore system dependencies
     if name == "" or name in ["nim", "compiler"]: continue
 
-    # Resolve the URL
     var rawUrl = name
     if "://" notin rawUrl:
-      let resolved = resolveNimbleName(projPath, rawUrl, logCtx)
-      if resolved != "": rawUrl = resolved
+      if resolvedUrls.hasKey(name): rawUrl = resolvedUrls[name]
 
     let
       urlId = symbols.getOrPut(rawUrl)
@@ -153,11 +200,9 @@ proc parseNimbleManifest*(
     var constr = FaeVerConstraint(lo: FaeVer(), hi: FaeVer(major: int.high))
     
     if reqVerStr.len > 0:
-      # Translate Nimble's distinct operators to our universal parser
       var normalizedReq = reqVerStr
       if normalizedReq.startsWith("~="): normalizedReq = "~" & normalizedReq[2..^1]
       elif normalizedReq.startsWith("^="): normalizedReq = "^" & normalizedReq[2..^1]
-      # # is used for specific commits in Nimble, which we handle via pfIsPseudo downstream
       elif normalizedReq.startsWith("#"): normalizedReq = "==" & normalizedReq[1..^1] 
       
       constr = parseConstraint(normalizedReq)
@@ -168,8 +213,9 @@ proc parseNimbleManifest*(
         originId: symbols.getOrPut("git"),
         urlId: urlId,
         commitId: symbols.getOrPut(""),
-        srcDirId: symbols.getOrPut("src"), # Temporary, resolved when queued
+        srcDirId: symbols.getOrPut("src"),
         entrypointId: symbols.getOrPut(""),
+        subdirId: symbols.getOrPut(""),
         version: FaeVer(),
         flags: {pfForeignNimble}
       )

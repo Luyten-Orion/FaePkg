@@ -1,5 +1,4 @@
 import std/[
-  strformat,
   sequtils,
   strutils,
   terminal,

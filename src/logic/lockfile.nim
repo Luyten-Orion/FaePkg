@@ -1,4 +1,4 @@
-import std/[strutils, tables]
+import std/tables
 import parsetoml
 import faepkg/logging
 import faepkg/core/[types, interner, state]

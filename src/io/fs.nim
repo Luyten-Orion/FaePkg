@@ -1,4 +1,4 @@
-import std/[os, strutils, json, tables]
+import std/[os, strutils, json]
 import faepkg/logging
 import faepkg/core/[types, interner, state]
 
@@ -36,7 +36,6 @@ proc generateIndexJson*(
     let
       record = registry.packages[pkg.id.uint32]
       url = symbols.getString(record.urlId)
-      packageName = symbols.getString(record.nameId)  
       # 1. Fully qualified versions
       fullId = if pkg.commitId.uint32 != 0 and (pfIsPseudo in record.flags):
         url & "#" & symbols.getString(pkg.commitId)
