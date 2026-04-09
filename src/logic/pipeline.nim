@@ -6,6 +6,46 @@ import faepkg/logic/[resolver, manifest, lockfile]
 import faepkg/io/[git, fs, network]
 import faepkg/foreign/nimble
 
+proc cacheSubmodulesRecursive*(logCtx: LoggerContext, projPath: string, bareRepoDir: string, parentUrl: string, processedSubmodules: var HashSet[string]) =
+  let submodules = getSubmodules(logCtx, bareRepoDir, "HEAD")
+  for sub in submodules:
+    let absoluteSubUrl = resolveRelativeGitUrl(parentUrl, sub.url)
+    
+    var cleanSubUrl = absoluteSubUrl
+    if cleanSubUrl.startsWith("https://"): cleanSubUrl = cleanSubUrl[8..^1]
+    elif cleanSubUrl.startsWith("http://"): cleanSubUrl = cleanSubUrl[7..^1]
+    if cleanSubUrl.endsWith(".git"): cleanSubUrl = cleanSubUrl[0..^5]
+    
+    if processedSubmodules.contains(cleanSubUrl): continue
+    processedSubmodules.incl(cleanSubUrl)
+    
+    let subCacheDir = getCachePath(projPath, cleanSubUrl)
+    if not dirExists(subCacheDir / "objects"):
+      logCtx.debug("Pre-caching submodule: " & cleanSubUrl)
+      discard cloneBare(logCtx, absoluteSubUrl, subCacheDir)
+    else:
+      discard fetch(logCtx, subCacheDir)
+      
+    cacheSubmodulesRecursive(logCtx, projPath, subCacheDir, absoluteSubUrl, processedSubmodules)
+
+proc materializeSubmodulesRecursive*(logCtx: LoggerContext, projPath: string, workDir: string, parentUrl: string) =
+  let submodules = getSubmodules(logCtx, workDir, "HEAD")
+  for sub in submodules:
+    let absoluteSubUrl = resolveRelativeGitUrl(parentUrl, sub.url)
+    
+    var cleanSubUrl = absoluteSubUrl
+    if cleanSubUrl.startsWith("https://"): cleanSubUrl = cleanSubUrl[8..^1]
+    elif cleanSubUrl.startsWith("http://"): cleanSubUrl = cleanSubUrl[7..^1]
+    if cleanSubUrl.endsWith(".git"): cleanSubUrl = cleanSubUrl[0..^5]
+
+    let subCacheDir = getCachePath(projPath, cleanSubUrl)
+    if dirExists(subCacheDir):
+      let safeCacheDir = subCacheDir.replace('\\', '/') 
+      discard setSubmoduleCacheUrl(logCtx, workDir, sub.name, safeCacheDir)
+      discard updateSubmoduleShallow(logCtx, workDir, sub.path)
+      
+      materializeSubmodulesRecursive(logCtx, projPath, workDir / sub.path, absoluteSubUrl)
+
 proc executeSync*(projPath: string, logCtx: LoggerContext) =
   var
     symbols = initSymbolTable()
@@ -99,6 +139,9 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
     else:
       discard fetch(logCtx, cacheDir)
 
+    var processedSubs = initHashSet[string]()
+    cacheSubmodulesRecursive(logCtx, projPath, cacheDir, "https://" & rawUrl, processedSubs)
+
     for edge in registry.edges:
       if edge.dependency == targetId:
         let constr = registry.constraints[edge.constraint.uint32]
@@ -158,9 +201,9 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
       commitHashOpt =
         if pfIsPseudo in record.flags: some(pkg.version.prerelease.split(".g")[^1]) 
         else: resolveRef(logCtx, cacheDir, versionRef)
-                        
+
       finalHash = commitHashOpt.get(versionRef)
-    
+
     registry.packages[pkg.id.uint32].commitId = symbols.getOrPut(finalHash)
 
     let
@@ -178,12 +221,15 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
       logCtx.info("Installing " & fullId)
       createDir(installDir)
       discard gitExec(logCtx, installDir, ["clone", cacheDir, "."])
+      discard gitExec(logCtx, installDir, ["remote", "set-url", "origin", "https://" & url])
       discard checkout(logCtx, installDir, finalHash)
 
+      materializeSubmodulesRecursive(logCtx, projPath, installDir, "https://" & url)
+
   generateIndexJson(logCtx, projPath, symbols, registry, res.resolved)
-  
+
   let lockOutput = generateLockfile(symbols, registry, res.resolved, rootTomlStr)
   writeFile(projPath / "fae-lock.toml", lockOutput)
-  logCtx.debug("Wrote fae-lock.toml") # Demoted
+  logCtx.debug("Wrote fae-lock.toml")
 
   logCtx.info("Dependencies synced.")

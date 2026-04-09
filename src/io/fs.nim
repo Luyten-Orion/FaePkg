@@ -13,7 +13,7 @@ proc getSafePath*(id: string): string =
   return res
 
 proc getCachePath*(projPath: string, url: string): string =
-  result = projPath / ".skull" / "cache" / getSafePath(url)
+  result = getCacheDir() / "faepkg" / "package-cache" / getSafePath(url)
 
 proc getInstallPath*(projPath: string, fullId: string): string =
   # Now explicitly uses the fullID (URL + Version/Hash)

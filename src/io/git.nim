@@ -1,4 +1,4 @@
-import std/[osproc, strutils, options, os, streams, times]
+import std/[osproc, strutils, options, os, streams, times, tables]
 import faepkg/logging
 import faepkg/core/types
 
@@ -71,3 +71,55 @@ proc generatePseudoversion*(logCtx: LoggerContext, targetDir: string, refr: stri
   var ver = FaeVer(major: 0, minor: 0, patch: 0)
   ver.prerelease = timestamp & ".g" & commitHash
   return some(ver)
+
+proc resolveRelativeGitUrl*(parentUrl: string, subUrl: string): string =
+  if not subUrl.startsWith("."): return subUrl
+  
+  var parentParts = parentUrl.split('/')
+  if parentParts.len > 0 and parentParts[^1].endsWith(".git"):
+    parentParts[^1] = parentParts[^1][0..^5]
+    
+  let subParts = subUrl.split('/')
+  for p in subParts:
+    if p == "..":
+      if parentParts.len > 3: discard parentParts.pop()
+    elif p != "." and p != "":
+      parentParts.add(p)
+      
+  result = parentParts.join("/")
+  if not result.endsWith(".git"): result &= ".git"
+
+proc getSubmodules*(logCtx: LoggerContext, targetDir: string, refr: string): seq[tuple[name, path, url: string]] =
+  let res = gitExec(logCtx, targetDir, ["config", "--blob", refr & ":.gitmodules", "--list"])
+  if res.code != 0: return @[]
+  
+  var paths = initTable[string, string]()
+  var urls = initTable[string, string]()
+  
+  for line in res.output.splitLines():
+    let parts = line.split('=', 1)
+    if parts.len != 2: continue
+    let key = parts[0]
+    let val = parts[1]
+    
+    if key.startsWith("submodule."):
+      let subKeyParts = key.split('.')
+      if subKeyParts.len >= 3:
+        let name = subKeyParts[1..^2].join(".")
+        let prop = subKeyParts[^1]
+        if prop == "path": paths[name] = val
+        elif prop == "url": urls[name] = val
+        
+  for name, path in paths:
+    if urls.hasKey(name):
+      result.add((name, path, urls[name]))
+
+proc setSubmoduleCacheUrl*(logCtx: LoggerContext, targetDir: string, subName: string, cachePath: string): bool =
+  let res = gitExec(logCtx, targetDir, ["config", "submodule." & subName & ".url", cachePath])
+  return res.code == 0
+
+proc updateSubmoduleShallow*(logCtx: LoggerContext, targetDir: string, subPath: string): bool =
+  let res = gitExec(logCtx, targetDir, ["submodule", "update", "--init", "--depth", "1", subPath])
+  if res.code != 0:
+    logCtx.warn("Failed to update submodule " & subPath & " in " & targetDir & ":\n" & res.output)
+  return res.code == 0
