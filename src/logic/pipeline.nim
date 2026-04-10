@@ -6,33 +6,35 @@ import faepkg/logic/[resolver, manifest, lockfile]
 import faepkg/io/[git, fs, network]
 import faepkg/foreign/nimble
 
-proc cacheSubmodulesRecursive*(logCtx: LoggerContext, projPath: string, bareRepoDir: string, parentUrl: string, processedSubmodules: var HashSet[string]) =
-  let submodules = getSubmodules(logCtx, bareRepoDir, "HEAD")
+proc cacheSubmodulesRecursive*(logCtx: LoggerContext, projPath: string, bareRepoDir: string, parentUrl: string, processedSubmodules: var HashSet[string], refr: string) =
+  let submodules = getSubmodules(logCtx, bareRepoDir, refr)
   for sub in submodules:
     let absoluteSubUrl = resolveRelativeGitUrl(parentUrl, sub.url)
-    
+
     var cleanSubUrl = absoluteSubUrl
     if cleanSubUrl.startsWith("https://"): cleanSubUrl = cleanSubUrl[8..^1]
     elif cleanSubUrl.startsWith("http://"): cleanSubUrl = cleanSubUrl[7..^1]
     if cleanSubUrl.endsWith(".git"): cleanSubUrl = cleanSubUrl[0..^5]
-    
+
     if processedSubmodules.contains(cleanSubUrl): continue
     processedSubmodules.incl(cleanSubUrl)
-    
+
     let subCacheDir = getCachePath(projPath, cleanSubUrl)
     if not dirExists(subCacheDir / "objects"):
       logCtx.debug("Pre-caching submodule: " & cleanSubUrl)
       discard cloneBare(logCtx, absoluteSubUrl, subCacheDir)
     else:
       discard fetch(logCtx, subCacheDir)
-      
-    cacheSubmodulesRecursive(logCtx, projPath, subCacheDir, absoluteSubUrl, processedSubmodules)
+
+    let subRefr = getSubmoduleHash(logCtx, bareRepoDir, refr, sub.path)
+
+    cacheSubmodulesRecursive(logCtx, projPath, subCacheDir, absoluteSubUrl, processedSubmodules, subRefr)
 
 proc materializeSubmodulesRecursive*(logCtx: LoggerContext, projPath: string, workDir: string, parentUrl: string) =
   let submodules = getSubmodules(logCtx, workDir, "HEAD")
   for sub in submodules:
     let absoluteSubUrl = resolveRelativeGitUrl(parentUrl, sub.url)
-    
+
     var cleanSubUrl = absoluteSubUrl
     if cleanSubUrl.startsWith("https://"): cleanSubUrl = cleanSubUrl[8..^1]
     elif cleanSubUrl.startsWith("http://"): cleanSubUrl = cleanSubUrl[7..^1]
@@ -40,10 +42,10 @@ proc materializeSubmodulesRecursive*(logCtx: LoggerContext, projPath: string, wo
 
     let subCacheDir = getCachePath(projPath, cleanSubUrl)
     if dirExists(subCacheDir):
-      let safeCacheDir = subCacheDir.replace('\\', '/') 
+      let safeCacheDir = subCacheDir.replace('\\', '/')
       discard setSubmoduleCacheUrl(logCtx, workDir, sub.name, safeCacheDir)
       discard updateSubmoduleShallow(logCtx, workDir, sub.path)
-      
+
       materializeSubmodulesRecursive(logCtx, projPath, workDir / sub.path, absoluteSubUrl)
 
 proc executeSync*(projPath: string, logCtx: LoggerContext) =
@@ -55,7 +57,7 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
 
   # --- PHASE 1: DISCOVERY (I/O) ---
   logCtx.debug("Discovering dependencies...")
-  
+
   let rootTomlPath = projPath / "package.skull.toml"
   if not fileExists(rootTomlPath):
     logCtx.error("Root manifest not found at: " & rootTomlPath)
@@ -71,7 +73,7 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
     if pkgTable.hasKey("name"): rootName = pkgTable["name"].getStr()
 
   let
-    rootUrlId = symbols.getOrPut(rootName) 
+    rootUrlId = symbols.getOrPut(rootName)
     rootId = registry.addPackage(PackageRecord(
       nameId: symbols.getOrPut(rootName),
       originId: symbols.getOrPut("local"),
@@ -80,10 +82,10 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
       srcDirId: symbols.getOrPut("src"),
       entrypointId: symbols.getOrPut("lib.nim"),
       subdirId: symbols.getOrPut(""),
-      version: FaeVer(prerelease: "pre"), 
+      version: FaeVer(prerelease: "pre"),
       flags: {pfIsRoot, pfLocked}
     ))
-  
+
     lockfilePath = projPath / "fae-lock.toml"
 
   processedUrls.incl(rootUrlId)
@@ -118,7 +120,7 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
         record.urlId = newUrlId
 
     rawUrl = resolveGoGet(logCtx, rawUrl)
-    
+
     if rawUrl.startsWith("https://"): rawUrl = rawUrl[8..^1]
     elif rawUrl.startsWith("http://"): rawUrl = rawUrl[7..^1]
     if rawUrl.endsWith(".git"): rawUrl = rawUrl[0..^5]
@@ -139,8 +141,24 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
     else:
       discard fetch(logCtx, cacheDir)
 
+    # --- DETERMINE TARGET REFERENCE ---
+    var targetRef = "HEAD"
+    for edge in registry.edges:
+      if edge.dependency == targetId:
+        let constr = registry.constraints[edge.constraint.uint32]
+        if constr.lo.prerelease != "" and not constr.lo.prerelease.contains('.'):
+          let parts = constr.lo.prerelease.split(".g")
+          targetRef = if parts.len == 2: parts[1] else: constr.lo.prerelease
+        elif constr.lo.major != 0 or constr.lo.minor != 0 or constr.lo.patch != 0:
+          targetRef = "v" & $constr.lo.major & "." & $constr.lo.minor & "." & $constr.lo.patch
+        break
+
+    let resolvedTargetOpt = resolveRef(logCtx, cacheDir, targetRef)
+    let actualRef = if resolvedTargetOpt.isSome: targetRef else: "HEAD"
+    # ----------------------------------
+
     var processedSubs = initHashSet[string]()
-    cacheSubmodulesRecursive(logCtx, projPath, cacheDir, "https://" & rawUrl, processedSubs)
+    cacheSubmodulesRecursive(logCtx, projPath, cacheDir, "https://" & rawUrl, processedSubs, actualRef)
 
     for edge in registry.edges:
       if edge.dependency == targetId:
@@ -159,16 +177,16 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
       nimblePattern = subdirStr & "/" & nimblePattern
 
     if pfForeignNimble in record.flags:
-      let nimbleFiles = lsFiles(logCtx, cacheDir, "HEAD", nimblePattern)
+      let nimbleFiles = lsFiles(logCtx, cacheDir, actualRef, nimblePattern)
       if nimbleFiles.len > 0:
-        let nimbleContent = catFile(logCtx, cacheDir, "HEAD", nimbleFiles[0])
+        let nimbleContent = catFile(logCtx, cacheDir, actualRef, nimbleFiles[0])
         if nimbleContent.isSome:
           let preEdgeCount = registry.edges.len
           parseNimbleManifest(logCtx, projPath, nimbleFiles[0], nimbleContent.get(), symbols, registry, targetId)
           for i in preEdgeCount..<registry.edges.len:
             queue.add(registry.edges[i].dependency)
     else:
-      let manifestContent = catFile(logCtx, cacheDir, "HEAD", manifestPath)
+      let manifestContent = catFile(logCtx, cacheDir, actualRef, manifestPath)
       if manifestContent.isSome:
         let preEdgeCount = registry.edges.len
         parseManifest(logCtx, manifestContent.get(), symbols, registry, targetId)
@@ -181,14 +199,14 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
 
   if not res.success:
     logCtx.error("Dependency conflict detected!")
-    for badUrlId in res.conflicts: 
+    for badUrlId in res.conflicts:
       let url = symbols.getString(badUrlId)
       logCtx.error(" -> Conflict on package: " & url)
     quit(1)
 
   # --- PHASE 3: MATERIALIZATION (I/O) ---
   logCtx.debug("Materializing dependencies...")
-  
+
   for pkg in res.resolved:
     let record = registry.packages[pkg.id.uint32]
     if pfIsRoot in record.flags: continue
@@ -197,9 +215,9 @@ proc executeSync*(projPath: string, logCtx: LoggerContext) =
       url = symbols.getString(record.urlId)
       versionRef = "v" & $pkg.version.major & "." & $pkg.version.minor & "." & $pkg.version.patch
       cacheDir = getCachePath(projPath, url)
-    
+
       commitHashOpt =
-        if pfIsPseudo in record.flags: some(pkg.version.prerelease.split(".g")[^1]) 
+        if pfIsPseudo in record.flags: some(pkg.version.prerelease.split(".g")[^1])
         else: resolveRef(logCtx, cacheDir, versionRef)
 
       finalHash = commitHashOpt.get(versionRef)

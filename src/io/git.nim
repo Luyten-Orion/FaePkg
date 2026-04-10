@@ -11,13 +11,13 @@ proc findGit(logCtx: LoggerContext): string =
 proc gitExec*(logCtx: LoggerContext, workingDir: string, args: openArray[string]): tuple[code: int, output: string] =
   let gitBin = findGit(logCtx)
   logCtx.trace("Executing git in `" & workingDir & "` with args: " & $args)
-  
+
   var
     prc = startProcess(gitBin, workingDir, args)
     outp = ""
   while prc.running:
     outp &= prc.outputStream.readAll()
-  
+
   result = (prc.exitStatus.int, outp)
   prc.close()
 
@@ -58,7 +58,7 @@ proc resolveRef*(logCtx: LoggerContext, targetDir: string, refr: string): Option
 proc generatePseudoversion*(logCtx: LoggerContext, targetDir: string, refr: string): Option[FaeVer] =
   ## Synthesizes a deterministic semantic version from a git commit.
   let hashRes = gitExec(logCtx, targetDir, ["rev-parse", "--short=12", refr])
-  if hashRes.code != 0: 
+  if hashRes.code != 0:
     return none(FaeVer)
   let commitHash = hashRes.output.strip()
 
@@ -74,34 +74,34 @@ proc generatePseudoversion*(logCtx: LoggerContext, targetDir: string, refr: stri
 
 proc resolveRelativeGitUrl*(parentUrl: string, subUrl: string): string =
   if not subUrl.startsWith("."): return subUrl
-  
+
   var parentParts = parentUrl.split('/')
   if parentParts.len > 0 and parentParts[^1].endsWith(".git"):
     parentParts[^1] = parentParts[^1][0..^5]
-    
+
   let subParts = subUrl.split('/')
   for p in subParts:
     if p == "..":
       if parentParts.len > 3: discard parentParts.pop()
     elif p != "." and p != "":
       parentParts.add(p)
-      
+
   result = parentParts.join("/")
   if not result.endsWith(".git"): result &= ".git"
 
 proc getSubmodules*(logCtx: LoggerContext, targetDir: string, refr: string): seq[tuple[name, path, url: string]] =
   let res = gitExec(logCtx, targetDir, ["config", "--blob", refr & ":.gitmodules", "--list"])
   if res.code != 0: return @[]
-  
+
   var paths = initTable[string, string]()
   var urls = initTable[string, string]()
-  
+
   for line in res.output.splitLines():
     let parts = line.split('=', 1)
     if parts.len != 2: continue
     let key = parts[0]
     let val = parts[1]
-    
+
     if key.startsWith("submodule."):
       let subKeyParts = key.split('.')
       if subKeyParts.len >= 3:
@@ -109,7 +109,7 @@ proc getSubmodules*(logCtx: LoggerContext, targetDir: string, refr: string): seq
         let prop = subKeyParts[^1]
         if prop == "path": paths[name] = val
         elif prop == "url": urls[name] = val
-        
+
   for name, path in paths:
     if urls.hasKey(name):
       result.add((name, path, urls[name]))
@@ -123,3 +123,11 @@ proc updateSubmoduleShallow*(logCtx: LoggerContext, targetDir: string, subPath: 
   if res.code != 0:
     logCtx.warn("Failed to update submodule " & subPath & " in " & targetDir & ":\n" & res.output)
   return res.code == 0
+
+proc getSubmoduleHash*(logCtx: LoggerContext, bareRepoDir: string, refr: string, subPath: string): string =
+  let res = gitExec(logCtx, bareRepoDir, ["ls-tree", refr, subPath])
+  if res.code == 0:
+    let parts = res.output.strip().split()
+    if parts.len >= 3 and parts[1] == "commit":
+      return parts[2]
+  return "HEAD"
