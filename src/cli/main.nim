@@ -53,7 +53,8 @@ proc handleInit(name: string, targetDir: Option[string], logCtx: LoggerContext) 
     quit(1)
 
   let
-    pkgDir = targetDir.get(name.rsplit('/', 2)[^1])
+    shortPkgName = name.rsplit('/', 2)[^1]
+    pkgDir = targetDir.get(shortPkgName)
     path = pkgDir / "package.skull.toml"
 
   if toSeq(walkDir(pkgDir, relative=true)).len > 0:
@@ -81,7 +82,7 @@ name = "{name}"
   try:
     createDir(pkgDir / "src")
     writeFile(pkgDir / "src/lib.nim", &"""# This is the entrypoint for your package. `export` logic should go here ideally.
-import {name}/foo
+import {shortPkgName}/foo
 
 export foo""")
 
