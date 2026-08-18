@@ -3,6 +3,7 @@ when not isMainModule: {.error: "You should never import this file!".}
 import std/[os, sugar, options, strutils, sequtils, strformat]
 import experimental/cmdline
 import faepkg/logging
+import faepkg/io/git
 import faepkg/logic/pipeline
 
 proc validatePkgName(s: string) =
@@ -33,18 +34,20 @@ type
     opInit
 
   Config = object
+    logLevel: LogLevel
     case op: Operation
     of opSync:
       syncDir: string
     of opInit:
       packageName: string
       targetDir: Option[string]
+      noGit: bool
 
 proc handleSync(syncDir: string, logCtx: LoggerContext) =
   let logCtx = logCtx.with("pkg-sync")
   executeSync(syncDir, logCtx)
 
-proc handleInit(name: string, targetDir: Option[string], logCtx: LoggerContext) =
+proc handleInit(name: string, targetDir: Option[string], noGit: bool, logCtx: LoggerContext) =
   let logCtx = logCtx.with("pkg-init")
   try:
     validatePkgName(name)
@@ -91,21 +94,28 @@ export foo""")
     logCtx.error("Failed to create src directory: " & e.msg)
     quit(1)
 
-  # Initial setup
+  if not noGit:
+    writeFile(pkgDir / ".gitignore", ".skull/\n.env")
+    let (code, outp) = gitExec(logCtx, pkgDir, ["init"])
+    if code != 0:
+      logCtx.warn("Failed to initialize git repository:\n" & outp)
+
   handleSync(pkgDir, logCtx)
 
 proc main() =
-  var logger = Logger.new()
-  logger.addCallback(LogCallback.init(
-    consoleLogger(showStack=false), @[filterLogLevel(llInfo)]
-  ))
-
-  let logCtx = logger.with("fae-cli")
-
   var cli = commandBuilder(Config)
     .name("faepkg")
     .describe("Fae Package Manager")
     .initCli()
+
+  cli.flagBuilder()
+    .name("log-level")
+    .alias("l")
+    .describe("Set the log level")
+    .parser((k, v, var cfg) => (
+      cfg.logLevel = parseEnum[LogLevel](v.toUpperAscii, llInfo))
+    )
+    .addTo(cli, RootCommand)
 
   cli.addHelpFlag(RootCommand, "help", "h")
 
@@ -113,7 +123,7 @@ proc main() =
   let syncCmd = cli.commandBuilder()
     .name("sync")
     .describe("Synchronize dependencies and generate index")
-    .parser((_, var cfg) => (cfg = Config(op: opSync, syncDir: getCurrentDir())))
+    .parser((_, var cfg) => (cfg.op = opSync; cfg.syncDir = getCurrentDir()))
     .addTo(cli, RootCommand)
 
   cli.positionalBuilder()
@@ -129,7 +139,7 @@ proc main() =
   let initCmd = cli.commandBuilder()
     .name("init")
     .describe("Initialize a new package.skull.toml")
-    .parser((_, var cfg) => (cfg = Config(op: opInit, targetDir: none(string))))
+    .parser((_, var cfg) => (cfg.op = opInit; cfg.targetDir = none(string)))
     .addTo(cli, RootCommand)
 
   cli.positionalBuilder()
@@ -145,10 +155,25 @@ proc main() =
     .parser(string, (val, var cfg) => (cfg.targetDir = some(val)))
     .addTo(cli, initCmd)
 
+  cli.flagBuilder()
+    .name("no-git")
+    .describe("Don't initialize a git repository")
+    .parser((k, v, var cfg) => (cfg.noGit = true))
+    .addTo(cli, initCmd)
+
   cli.addHelpFlag(initCmd)
 
-  # --- Execution ---
-  let config = cli.run()
+  var
+    config = Config(logLevel: llInfo)
+    logger = Logger.new()
+
+  cli.run(config)
+
+  logger.addCallback(LogCallback.init(
+    consoleLogger(showStack=false), @[filterLogLevel(config.logLevel)]
+  ))
+
+  let logCtx = logger.with("fae-cli")
 
   case config.op
   of opSync:
@@ -157,6 +182,6 @@ proc main() =
     if config.packageName == "":
       logCtx.error("A package name is required for initialization.")
       quit(1)
-    handleInit(config.packageName, config.targetDir, logCtx)
+    handleInit(config.packageName, config.targetDir, config.noGit, logCtx)
 
 main()
